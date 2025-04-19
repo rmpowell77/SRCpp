@@ -37,6 +37,7 @@ endif()
 # Tests
 #============================================================================
 if(SRCPP_WITH_TESTS)
+  enable_testing()
   add_subdirectory(tests)
 endif()
 

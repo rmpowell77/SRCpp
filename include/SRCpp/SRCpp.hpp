@@ -66,7 +66,8 @@ auto Resample(std::span<const float> input, std::span<float> output,
 auto Resample(std::span<const float> input, SRCpp::Type type, int channels,
     double factor) -> std::expected<std::vector<float>, std::string>
 {
-    std::vector<float> output(input.size() * factor * channels);
+    std::vector<float> output(
+        std::ceil((input.size() + 1) * factor * channels));
     auto result = Resample(input, output, type, channels, factor);
     if (!result.has_value()) {
         return std::unexpected(result.error());
@@ -75,10 +76,12 @@ auto Resample(std::span<const float> input, SRCpp::Type type, int channels,
     return output;
 }
 
-class SampleRateConverter {
+class PushConverter {
 public:
-    SampleRateConverter(SRCpp::Type type, int channels, double factor)
-        : factor_ { factor }
+    PushConverter(SRCpp::Type type, int channels, double factor)
+        : type_ { type }
+        , channels_ { channels }
+        , factor_ { factor }
     {
         auto error = 0;
         state_ = src_new(static_cast<int>(type), channels, &error);
@@ -86,37 +89,43 @@ public:
             throw std::runtime_error(src_strerror(error));
         }
     }
-    ~SampleRateConverter() { src_delete(state_); }
+    ~PushConverter() { src_delete(state_); }
 
+    // you pass in frames to consume, and where to put them
+    // and you get back a span with the unused, and the valid data
     auto operator()(std::span<const float> input, std::span<float> output)
         -> std::expected<std::span<float>, std::string>
     {
-        float dummy = 0.f;
-        auto src_data = SRC_DATA {
-            input.empty() ? &dummy : input.data(),
-            output.data(),
-            static_cast<long>(input.size()),
-            static_cast<long>(output.size()),
-            0,
-            0,
-            input.empty(),
-            factor_,
-        };
-        if (auto result = src_process(state_, &src_data); result != 0) {
-            return std::unexpected(src_strerror(result));
+        reserved_input_.insert(
+            reserved_input_.end(), input.begin(), input.end());
+        auto result
+            = convertWithFixFor208(reserved_input_, output, input.empty());
+        if (!result.has_value()) {
+            return std::unexpected(result.error());
         }
-        outstanding_ += src_data.input_frames_used * factor_
-            - src_data.output_frames_gen;
+        auto& [input_data, output_data] = result.value();
+        std::copy(
+            input_data.begin(), input_data.end(), reserved_input_.begin());
+        reserved_input_.resize(input_data.size());
 
-        return std::span { output.data(),
-            static_cast<size_t>(src_data.output_frames_gen) };
+        return output_data;
     }
 
     auto operator()(std::span<const float> input)
         -> std::expected<std::vector<float>, std::string>
     {
-        std::vector<float> output(
-            (input.empty()) ? outstanding_ : input.size() * factor_);
+        auto expected_frames_produced
+            = static_cast<size_t>(std::ceil(input_frames_consumed_ * factor_));
+        auto amount = [&] -> size_t {
+            if (!input.empty()) {
+                return std::ceil((input.size() / channels_) * factor_);
+            }
+            if (expected_frames_produced >= output_frames_produced_) {
+                return expected_frames_produced - output_frames_produced_;
+            }
+            return 0;
+        }() + 1;
+        std::vector<float> output(amount * channels_);
         auto result = this->operator()(input, output);
         if (!result.has_value()) {
             return std::unexpected(result.error());
@@ -129,11 +138,90 @@ public:
 
 private:
     SRC_STATE* state_ { nullptr };
+    SRCpp::Type type_ { SRC_SINC_BEST_QUALITY };
+    int channels_ { 0 };
     double factor_ { 1.0 };
-    size_t outstanding_ { 0 };
-};
+    const float dummy_ {};
+    std::vector<float> reserved_input_;
+    std::vector<float> last_input_;
+    size_t input_frames_consumed_ { 0 };
+    size_t output_frames_produced_ { 0 };
 
+    // you pass in frames to consume, and where to put them
+    // and you get back a span with the unused, and the valid data
+    auto convert(
+        std::span<const float> input, std::span<float> output, bool end)
+        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+            std::string>
+    {
+        // if we don't consume input data, we need to keep trying
+        auto* input_ptr = input.empty() ? &dummy_ : input.data();
+        auto* output_ptr = output.data();
+        auto input_frames = input.size() / channels_;
+        auto output_frames = output.size() / channels_;
+        auto src_data = SRC_DATA {
+            input_ptr,
+            output_ptr,
+            static_cast<long>(input_frames),
+            static_cast<long>(output_frames),
+            0,
+            0,
+            end,
+            factor_,
+        };
+        if (auto result = src_process(state_, &src_data); result != 0) {
+            return std::unexpected(src_strerror(result));
+        }
+        input_frames_consumed_ += src_data.input_frames_used;
+        output_frames_produced_ += src_data.output_frames_gen;
+
+        return std::pair { input.subspan(
+                               src_data.input_frames_used * channels_),
+            output.subspan(0, src_data.output_frames_gen * channels_) };
+    }
+    auto convertWithFixFor208(
+        std::span<const float> input, std::span<float> output, bool end)
+        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+            std::string>
+    {
+        // https://github.com/libsndfile/libsamplerate/issues/208
+        // When there is 1 frame of data, the linear SRC assumes it can read
+        // the previous values and reads off the begin of the array.
+        // Temporary fix until that is resolved.
+        //
+        if (type_ != SRCpp::Type::Linear) {
+            return convert(input, output, end);
+        }
+
+        auto result = [&] {
+            if (input.size() == channels_) {
+                last_input_.insert(
+                    last_input_.end(), input.begin(), input.end());
+                return convert({ last_input_.data() + channels_, input.size() },
+                    output, end);
+            }
+            return convert(input, output, end);
+        }();
+        if (!result.has_value()) {
+            return result;
+        }
+
+        auto& [input_unused, output_created] = result.value();
+        auto input_data_used = input.size() - input_unused.size();
+
+        // if we are linear, save the last input for next time
+        if (input_data_used) {
+            last_input_.assign(input.data() + input_data_used - channels_,
+                input.data() + input_data_used);
+        } else {
+            last_input_.clear();
+        }
+
+        return std::pair { input.subspan(input_data_used), output_created };
+    }
+};
 }
+
 // Custom formatter specialization for SRC_DATA
 template <> struct std::formatter<SRC_DATA> {
     // No parse function needed since we have no format specifiers

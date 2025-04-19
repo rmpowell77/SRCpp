@@ -18,7 +18,7 @@ auto makeSin([[maybe_unused]] float hz, [[maybe_unused]] float sr,
 
 int try_simple()
 {
-    auto data = makeSin(3000.0, 48000.0, 16);
+    auto data = makeSin(3000.0, 48000.0, 128);
 
     std::println("data");
     for (auto i : data) {
@@ -27,7 +27,7 @@ int try_simple()
     std::println("");
     {
         auto output
-            = SRCpp::Resample(data, SRCpp::Type::Sinc_MediumQuality, 1, 0.9);
+            = SRCpp::Resample(data, SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
 
         if (output.has_value()) {
 
@@ -52,7 +52,7 @@ int try_normal()
     std::println("");
     {
         auto src
-            = SRCpp::SampleRateConverter(SRCpp::Type::Sinc_MediumQuality, 1, 1);
+            = SRCpp::PushConverter(SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
         {
             auto output = src(data);
             if (output.has_value()) {
@@ -78,8 +78,7 @@ int try_normal()
     }
     std::vector<float> output(128);
     int error = 0;
-    auto src
-        = SRCpp::SampleRateConverter(SRCpp::Type::Sinc_MediumQuality, 1, 2);
+    auto src = SRCpp::PushConverter(SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
     std::println("error {}", error);
 
     auto src_data = SRC_DATA {
@@ -93,7 +92,7 @@ int try_normal()
 
         0,
 
-        1,
+        0.1,
     };
     std::println("{}", src_data);
     auto result = src_process(src.get(), &src_data);
@@ -105,7 +104,6 @@ int try_normal()
     std::println("");
     std::println("{}", src_data);
     src_data.end_of_input = 1;
-    src_data.input_frames = 0;
     src_data.input_frames_used = 0;
     std::println("{}", src_data);
 
