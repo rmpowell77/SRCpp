@@ -23,6 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include <cmath>
 #include <expected>
 #include <format>
 #include <samplerate.h>
@@ -116,7 +117,7 @@ public:
     {
         auto expected_frames_produced
             = static_cast<size_t>(std::ceil(input_frames_consumed_ * factor_));
-        auto amount = [&] -> size_t {
+        auto amount = [&]() -> size_t {
             if (!input.empty()) {
                 return std::ceil((input.size() / channels_) * factor_);
             }
