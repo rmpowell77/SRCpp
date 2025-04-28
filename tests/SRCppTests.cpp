@@ -1,5 +1,6 @@
 #include <SRCpp/SRCpp.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <numbers>
 #include <ranges>
 
 TEST_CASE("std::format with SRC_DATA", "[SRC_DATA]")
@@ -31,9 +32,10 @@ auto makeSin(const std::vector<float>& hz, float sr, size_t len)
     size_t channels = hz.size();
     std::vector<float> data(len * channels);
 
+    using namespace std::numbers;
     for (size_t i : std::views::iota(0UL, len)) {
         for (size_t ch = 0; ch < channels; ++ch) {
-            data.at(i * channels + ch) = std::sin(hz[ch] * i * 2 * M_PI / sr);
+            data.at(i * channels + ch) = std::sin(hz[ch] * i * 2 * pi / sr);
         }
     }
 
@@ -90,6 +92,9 @@ auto CreatePushReference(const std::vector<float>& input, size_t channels,
         factor,
     };
     auto result = src_process(state, &src_data);
+    if (result != 0) {
+        throw std::runtime_error(src_strerror(result));
+    }
     auto output_frames_produced = src_data.output_frames_gen;
 
     // flush out anything remaining
@@ -99,10 +104,20 @@ auto CreatePushReference(const std::vector<float>& input, size_t channels,
     src_data.output_frames -= src_data.output_frames_gen;
     src_data.end_of_input = true;
 
+    // this is necessary because if we've incremented the data_in to the end, it
+    // *could* overlap with the beinging of data_out, and src doesn't like that.
+    if (src_data.input_frames == 0) {
+        src_data.data_in = input.data();
+    }
+
     result = src_process(state, &src_data);
+    if (result != 0) {
+        throw std::runtime_error(src_strerror(result));
+    }
 
     output.resize(
         (output_frames_produced + src_data.output_frames_gen) * channels);
+    src_delete(state);
     return output;
 }
 
@@ -182,7 +197,7 @@ TEST_CASE("ResampleWithPusher One Shot", "[SRCpp]")
         for (auto type : { SRCpp::Type::Sinc_BestQuality,
                  SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
                  SRCpp::Type::ZeroOrderHold, SRCpp::Type::Linear }) {
-            for (auto factor : { 1.5, 0.1, 0.5, 0.9, 1.0, 1.5, 2.0, 4.5 }) {
+            for (auto factor : { 0.1, 0.5, 0.9, 1.0, 1.5, 2.0, 4.5 }) {
                 for (auto hz : { std::vector<float> { 3000.0f },
                          std::vector<float> { 3000.0f, 40.0f },
                          std::vector<float> { 3000.0f, 40.0f, 1004.0f } }) {

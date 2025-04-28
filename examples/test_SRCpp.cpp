@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <expected>
+#include <numbers>
 #include <print>
 #include <ranges>
 #include <vector>
@@ -9,9 +10,10 @@
 auto makeSin([[maybe_unused]] float hz, [[maybe_unused]] float sr,
     [[maybe_unused]] size_t len)
 {
+    using namespace std::numbers;
     std::vector<float> data(len);
     for (auto i : std::views::iota(0UL, len)) {
-        data.at(i) = std::sin(hz * i * 2 * M_PI / sr);
+        data.at(i) = std::sin(hz * i * 2 * pi / sr);
     }
     return data;
 }
