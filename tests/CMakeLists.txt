@@ -31,3 +31,5 @@ target_link_libraries(
 )
 
 add_test(NAME BuildTest COMMAND SRCppBuilds)
+
+SetupCompilerForTarget(SRCppTests)
