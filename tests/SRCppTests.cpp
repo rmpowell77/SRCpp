@@ -320,6 +320,7 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                             == static_cast<int>(channels)) {
                             auto mangledReference = reference;
                             mangledReference.resize(output.size());
+                            REQUIRE(output == mangledReference);
                         } else {
                             REQUIRE(output == reference);
                         }
@@ -335,6 +336,7 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                             == static_cast<int>(channels)) {
                             auto mangledReference = reference;
                             mangledReference.resize(output.size());
+                            REQUIRE(output == mangledReference);
                         } else {
                             REQUIRE(output == reference);
                         }
@@ -352,6 +354,7 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                                 == static_cast<int>(channels)) {
                                 auto mangledReference = reference;
                                 mangledReference.resize(output.size());
+                                REQUIRE(output == mangledReference);
                             } else {
                                 REQUIRE(output == reference);
                             }
