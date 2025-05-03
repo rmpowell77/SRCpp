@@ -7,18 +7,53 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(SRCppTests
-  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTests.cpp
+add_executable(SRCppTestCommon
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestCommon.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestUtils.cpp
 )
 
 target_link_libraries(
-  SRCppTests
+  SRCppTestCommon
   Catch2::Catch2WithMain
   SRCpp
   samplerate
 )
 
-add_test(NAME UnitTest COMMAND SRCppTests)
+add_executable(SRCppTestPull
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestPull.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestUtils.cpp
+)
+
+target_link_libraries(
+  SRCppTestPull
+  Catch2::Catch2WithMain
+  SRCpp
+  samplerate
+)
+
+add_executable(SRCppTestPush
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestPush.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestUtils.cpp
+)
+
+target_link_libraries(
+  SRCppTestPush
+  Catch2::Catch2WithMain
+  SRCpp
+  samplerate
+)
+
+add_executable(SRCppTestResample
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestResample.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestUtils.cpp
+)
+
+target_link_libraries(
+  SRCppTestResample
+  Catch2::Catch2WithMain
+  SRCpp
+  samplerate
+)
 
 add_executable(SRCppBuilds
   ${CMAKE_CURRENT_SOURCE_DIR}/SRCppBuilds.cpp
@@ -30,6 +65,14 @@ target_link_libraries(
   samplerate
 )
 
-add_test(NAME BuildTest COMMAND SRCppBuilds)
+add_test(NAME SRCppTestCommon COMMAND SRCppTestCommon)
+add_test(NAME SRCppTestResample COMMAND SRCppTestResample)
+add_test(NAME SRCppTestPull COMMAND SRCppTestPull)
+add_test(NAME SRCppTestPush COMMAND SRCppTestPush)
+add_test(NAME SRCppBuilds COMMAND SRCppBuilds)
 
-SetupCompilerForTarget(SRCppTests)
+SetupCompilerForTarget(SRCppTestCommon)
+SetupCompilerForTarget(SRCppTestResample)
+SetupCompilerForTarget(SRCppTestPush)
+SetupCompilerForTarget(SRCppTestPull)
+SetupCompilerForTarget(SRCppBuilds)
