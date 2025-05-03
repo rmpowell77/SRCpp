@@ -26,6 +26,7 @@ SOFTWARE.
 #include <cmath>
 #include <expected>
 #include <format>
+#include <functional>
 #include <samplerate.h>
 #include <span>
 #include <string>
@@ -220,6 +221,65 @@ private:
 
         return std::pair { input.subspan(input_data_used), output_created };
     }
+};
+
+class PullConverter {
+public:
+    using callback_t = std::function<std::span<float>()>;
+    PullConverter(
+        callback_t callback, SRCpp::Type type, int channels, double factor)
+        : callback_(callback)
+        , type_ { type }
+        , channels_ { channels }
+        , factor_ { factor }
+    {
+        auto error = 0;
+        state_ = src_callback_new(
+            [](void* cb_data, float** data) -> long {
+                auto* self = static_cast<PullConverter*>(cb_data);
+                return self->handle_calback(data);
+            },
+            static_cast<int>(type), channels, &error, this);
+        if (error != 0) {
+            throw std::runtime_error(src_strerror(error));
+        }
+    }
+    ~PullConverter() { src_delete(state_); }
+
+    // you pass in frames to consume, and where to put them
+    // and you get back a span with the unused, and the valid data
+    auto pull(std::span<float> output)
+        -> std::expected<std::span<float>, std::string>
+    {
+        auto size = src_callback_read(
+            state_, factor_, output.size() / channels_, output.data());
+        return output.subspan(0, size * channels_);
+    }
+
+private:
+    auto handle_calback(float** data) -> long
+    {
+        if (data == nullptr) {
+            return 0;
+        }
+        auto newData = callback_();
+        // SRC is pendantic that input and output buffers don't overlap, even if
+        // the input size is 0, such as an end iterator.  If a client has input
+        // and output buffers that are adjacent, this would cause an error.  So
+        // in the cases of a size of zero, we provide a safe dummy pointer.
+        if (newData.empty()) {
+            *data = &dummy_;
+            return 0;
+        }
+        *data = newData.data();
+        return newData.size() / channels_;
+    }
+    callback_t callback_;
+    SRC_STATE* state_ { nullptr };
+    SRCpp::Type type_ { SRC_SINC_BEST_QUALITY };
+    int channels_ { 0 };
+    double factor_ { 1.0 };
+    float dummy_ {};
 };
 }
 
