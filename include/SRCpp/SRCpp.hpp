@@ -196,7 +196,7 @@ private:
         }
 
         auto result = [&] {
-            if (input.size() == channels_) {
+            if (input.size() == static_cast<size_t>(channels_)) {
                 last_input_.insert(
                     last_input_.end(), input.begin(), input.end());
                 return convert({ last_input_.data() + channels_, input.size() },
@@ -229,7 +229,6 @@ public:
     PullConverter(
         callback_t callback, SRCpp::Type type, int channels, double factor)
         : callback_(callback)
-        , type_ { type }
         , channels_ { channels }
         , factor_ { factor }
     {
@@ -276,7 +275,6 @@ private:
     }
     callback_t callback_;
     SRC_STATE* state_ { nullptr };
-    SRCpp::Type type_ { SRC_SINC_BEST_QUALITY };
     int channels_ { 0 };
     double factor_ { 1.0 };
     float dummy_ {};

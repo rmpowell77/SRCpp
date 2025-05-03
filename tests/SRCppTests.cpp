@@ -44,7 +44,7 @@ auto makeSin(const std::vector<float>& hz, float sr, size_t len)
 
 // this effectively is what SRCpp::Resample does
 auto CreateOneShotReference(const std::vector<float>& input, size_t channels,
-    double factor, SRCpp::Type type, size_t frames)
+    double factor, SRCpp::Type type)
 {
     std::vector<float> output(input.size() * factor * channels * 2);
     auto src_data = SRC_DATA {
@@ -68,7 +68,7 @@ auto CreateOneShotReference(const std::vector<float>& input, size_t channels,
 
 // this effectively is what SRCpp::Push does.
 auto CreatePushReference(const std::vector<float>& input, size_t channels,
-    double factor, SRCpp::Type type, size_t frames)
+    double factor, SRCpp::Type type)
 {
     auto error = 0;
     auto* state = src_new(static_cast<int>(type), channels, &error);
@@ -122,7 +122,7 @@ auto CreatePushReference(const std::vector<float>& input, size_t channels,
 }
 
 auto ConvertWithPush(const std::vector<float>& input, size_t channels,
-    double factor, SRCpp::Type type, size_t frames)
+    double factor, SRCpp::Type type)
 {
     std::vector<float> output(input.size() * factor * channels * 2);
     auto pusher = SRCpp::PushConverter(type, channels, factor);
@@ -140,7 +140,7 @@ auto ConvertWithPush(const std::vector<float>& input, size_t channels,
 }
 
 auto ConvertWithPush(std::vector<float> input, size_t channels, double factor,
-    SRCpp::Type type, size_t frames, size_t input_frames)
+    SRCpp::Type type, size_t input_frames)
 {
     auto output = std::vector<float> {};
     auto pusher = SRCpp::PushConverter(type, channels, factor);
@@ -167,8 +167,7 @@ auto ConvertWithPush(std::vector<float> input, size_t channels, double factor,
 }
 
 auto ConvertWithPull(std::vector<float> input, size_t channels, double factor,
-    SRCpp::Type type, size_t frames,
-    std::optional<size_t> input_frames = std::nullopt)
+    SRCpp::Type type, std::optional<size_t> input_frames = std::nullopt)
 {
     auto framesExpected
         = static_cast<size_t>(std::ceil((input.size() / channels) * factor));
@@ -183,8 +182,8 @@ auto ConvertWithPull(std::vector<float> input, size_t channels, double factor,
             return input_span.size();
         }();
 
-        auto result = input_span.subspan(0, input_span.size());
-        input_span = input_span.subspan(input_span.size());
+        auto result = input_span.subspan(0, input_samples);
+        input_span = input_span.subspan(input_samples);
         return result;
     };
     auto puller = SRCpp::PullConverter(callback, type, channels, factor);
@@ -197,7 +196,7 @@ auto ConvertWithPull(std::vector<float> input, size_t channels, double factor,
 }
 
 auto ConvertWithPullOutputFrames(std::vector<float> input, size_t channels,
-    double factor, SRCpp::Type type, size_t frames, size_t output_frames,
+    double factor, SRCpp::Type type, size_t output_frames,
     std::optional<size_t> input_frames = std::nullopt)
 {
     auto framesExpected
@@ -213,12 +212,12 @@ auto ConvertWithPullOutputFrames(std::vector<float> input, size_t channels,
             return input_span.size();
         }();
 
-        auto result = input_span.subspan(0, input_span.size());
-        input_span = input_span.subspan(input_span.size());
+        auto result = input_span.subspan(0, input_samples);
+        input_span = input_span.subspan(input_samples);
         return result;
     };
     auto puller = SRCpp::PullConverter(callback, type, channels, factor);
-    auto framesProduced = 0;
+    auto framesProduced = 0UL;
     while (framesProduced < framesExpected && input_span.size()) {
         auto toPull = std::min(output_frames, framesExpected - framesProduced);
         auto pullBuffer = std::span { output.data() + framesProduced * channels,
@@ -246,8 +245,8 @@ TEST_CASE("Resample", "[SRCpp]")
                     auto channels = hz.size();
                     auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference = CreateOneShotReference(
-                        input, channels, factor, type, frames);
+                    auto reference
+                        = CreateOneShotReference(input, channels, factor, type);
                     auto output
                         = SRCpp::Resample(input, type, channels, factor);
 
@@ -271,8 +270,8 @@ TEST_CASE("ResampleWithPusher", "[SRCpp]")
                     auto channels = hz.size();
                     auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference = CreatePushReference(
-                        input, channels, factor, type, frames);
+                    auto reference
+                        = CreatePushReference(input, channels, factor, type);
                     {
                         auto output = ConvertWithPush(
                             input, channels, factor, type, frames);
@@ -281,7 +280,7 @@ TEST_CASE("ResampleWithPusher", "[SRCpp]")
                     }
                     for (auto input_size : { 4, 8, 16, 32, 64 }) {
                         auto output = ConvertWithPush(
-                            input, channels, factor, type, frames, input_size);
+                            input, channels, factor, type, input_size);
 
                         if (type == SRCpp::Type::ZeroOrderHold) {
                             auto mangledReference = reference;
@@ -310,16 +309,16 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                     auto channels = hz.size();
                     auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference = CreatePushReference(
-                        input, channels, factor, type, frames);
+                    auto reference
+                        = CreatePushReference(input, channels, factor, type);
                     {
-                        auto output = ConvertWithPull(
-                            input, channels, factor, type, frames);
+                        auto output
+                            = ConvertWithPull(input, channels, factor, type);
                         REQUIRE(output.size() > 0);
                         // fudge factor for pull
                         if (std::abs(static_cast<int>(reference.size())
                                 - static_cast<int>(output.size()))
-                            == channels) {
+                            == static_cast<int>(channels)) {
                             auto mangledReference = reference;
                             mangledReference.resize(output.size());
                         } else {
@@ -328,13 +327,13 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                     }
                     for (auto input_size : { 4, 32, 33, 128 }) {
                         auto output = ConvertWithPull(
-                            input, channels, factor, type, frames, input_size);
+                            input, channels, factor, type, input_size);
                         REQUIRE(output.size() > 0);
 
                         // fudge factor for pull
                         if (std::abs(static_cast<int>(reference.size())
                                 - static_cast<int>(output.size()))
-                            == channels) {
+                            == static_cast<int>(channels)) {
                             auto mangledReference = reference;
                             mangledReference.resize(output.size());
                         } else {
@@ -343,15 +342,15 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                     }
                     for (auto output_frames : { 4, 32, 33, 128 }) {
                         for (auto input_frames : { 4, 32, 33, 128 }) {
-                            auto output = ConvertWithPullOutputFrames(input,
-                                channels, factor, type, frames, output_frames,
-                                input_frames);
+                            auto output
+                                = ConvertWithPullOutputFrames(input, channels,
+                                    factor, type, output_frames, input_frames);
                             REQUIRE(output.size() > 0);
 
                             // fudge factor for pull
                             if (std::abs(static_cast<int>(reference.size())
                                     - static_cast<int>(output.size()))
-                                == channels) {
+                                == static_cast<int>(channels)) {
                                 auto mangledReference = reference;
                                 mangledReference.resize(output.size());
                             } else {

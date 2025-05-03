@@ -12,4 +12,4 @@ target_link_libraries(
   SRCpp
 )
 
-
+SetupCompilerForTarget(test_SRCpp)
