@@ -124,7 +124,6 @@ auto CreatePushReference(const std::vector<float>& input, size_t channels,
 auto ConvertWithPush(const std::vector<float>& input, size_t channels,
     double factor, SRCpp::Type type)
 {
-    std::vector<float> output(input.size() * factor * channels * 2);
     auto pusher = SRCpp::PushConverter(type, channels, factor);
     auto data = pusher.push(input);
     if (!data.has_value()) {
