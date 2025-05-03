@@ -79,7 +79,18 @@ jobs:
       if: failure()
       run: cat ${{ github.workspace }}/build/Testing/Temporary/LastTest.log
 
-
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+    steps:
+      - name: Check matrix success
+        run: |
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "Some matrix jobs failed"
+            exit 1
+          fi
   release:
     if: contains(github.ref, 'tags/v')
     name: Release
