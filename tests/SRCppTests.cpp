@@ -125,11 +125,11 @@ auto ConvertWithPush(const std::vector<float>& input, size_t channels,
     double factor, SRCpp::Type type)
 {
     auto pusher = SRCpp::PushConverter(type, channels, factor);
-    auto data = pusher(input);
+    auto data = pusher.push(input);
     if (!data.has_value()) {
         throw std::runtime_error(data.error());
     }
-    auto flush = pusher({});
+    auto flush = pusher.push({});
     if (!flush.has_value()) {
         throw std::runtime_error(flush.error());
     }
@@ -146,7 +146,7 @@ auto ConvertWithPush(std::vector<float> input, size_t channels, double factor,
     auto framesLeft = input.size() / channels;
     while (framesLeft) {
         auto framesForThis = std::min(input_frames, input.size() / channels);
-        auto data = pusher(
+        auto data = pusher.push(
             { input.begin(), input.begin() + framesForThis * channels });
         if (!data.has_value()) {
             throw std::runtime_error(data.error());
@@ -156,7 +156,7 @@ auto ConvertWithPush(std::vector<float> input, size_t channels, double factor,
         output.insert(
             output.end(), data->begin(), data->end()); // append flush to data
     }
-    auto flush = pusher({});
+    auto flush = pusher.push({});
     if (!flush.has_value()) {
         throw std::runtime_error(flush.error());
     }

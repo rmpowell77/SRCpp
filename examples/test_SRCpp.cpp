@@ -56,7 +56,7 @@ int try_normal()
         auto src
             = SRCpp::PushConverter(SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
         {
-            auto output = src(data);
+            auto output = src.push(data);
             if (output.has_value()) {
 
                 std::println("output({})", output->size());
@@ -67,7 +67,7 @@ int try_normal()
             }
         }
         {
-            auto output = src({});
+            auto output = src.push({});
             if (output.has_value()) {
 
                 std::println("output({})", output->size());
@@ -78,45 +78,7 @@ int try_normal()
             }
         }
     }
-    std::vector<float> output(128);
-    int error = 0;
-    auto src = SRCpp::PushConverter(SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
-    std::println("error {}", error);
 
-    auto src_data = SRC_DATA {
-        data.data(),
-        output.data(),
-
-        128,
-        128,
-        0,
-        0,
-
-        0,
-
-        0.1,
-    };
-    std::println("{}", src_data);
-    auto result = src_process(src.get(), &src_data);
-    std::println("result {} {}", result, src_strerror(result));
-    std::println("data");
-    for (auto i : output) {
-        std::print("{} ", i);
-    }
-    std::println("");
-    std::println("{}", src_data);
-    src_data.end_of_input = 1;
-    src_data.input_frames_used = 0;
-    std::println("{}", src_data);
-
-    result = src_process(src.get(), &src_data);
-    std::println("result {} {}", result, src_strerror(result));
-    std::println("data");
-    for (auto i : output) {
-        std::print("{} ", i);
-    }
-    std::println("");
-    std::println("{}", src_data);
     return 0;
 }
 

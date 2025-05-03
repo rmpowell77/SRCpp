@@ -95,7 +95,7 @@ public:
 
     // you pass in frames to consume, and where to put them
     // and you get back a span with the unused, and the valid data
-    auto operator()(std::span<const float> input, std::span<float> output)
+    auto push(std::span<const float> input, std::span<float> output)
         -> std::expected<std::span<float>, std::string>
     {
         reserved_input_.insert(
@@ -113,7 +113,7 @@ public:
         return output_data;
     }
 
-    auto operator()(std::span<const float> input)
+    auto push(std::span<const float> input)
         -> std::expected<std::vector<float>, std::string>
     {
         auto expected_frames_produced
@@ -128,15 +128,13 @@ public:
             return 0;
         }() + 1;
         std::vector<float> output(amount * channels_);
-        auto result = this->operator()(input, output);
+        auto result = push(input, output);
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
         output.resize(result->size());
         return output;
     }
-
-    SRC_STATE* get() { return state_; }
 
 private:
     SRC_STATE* state_ { nullptr };
