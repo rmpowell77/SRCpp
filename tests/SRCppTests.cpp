@@ -230,9 +230,13 @@ auto ConvertWithPullOutputFrames(std::vector<float> input, size_t channels,
     output.resize(framesProduced * channels);
     return output;
 }
+#include <future>
+#include <vector>
 
 TEST_CASE("Resample", "[SRCpp]")
 {
+    std::vector<std::future<void>> futures;
+
     for (auto frames : { 16, 256, 257, 500 }) {
         for (auto type : { SRCpp::Type::Sinc_BestQuality,
                  SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
@@ -241,23 +245,31 @@ TEST_CASE("Resample", "[SRCpp]")
                 for (auto hz : { std::vector<float> { 3000.0f },
                          std::vector<float> { 3000.0f, 40.0f },
                          std::vector<float> { 3000.0f, 40.0f, 1004.0f } }) {
-                    auto channels = hz.size();
-                    auto input = makeSin(hz, 48000.0, frames);
+                    futures.push_back(std::async(std::launch::async, [=]() {
+                        auto channels = hz.size();
+                        auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference
-                        = CreateOneShotReference(input, channels, factor, type);
-                    auto output
-                        = SRCpp::Resample(input, type, channels, factor);
+                        auto reference = CreateOneShotReference(
+                            input, channels, factor, type);
+                        auto output
+                            = SRCpp::Resample(input, type, channels, factor);
 
-                    REQUIRE(output == reference);
+                        REQUIRE(output == reference);
+                    }));
                 }
             }
         }
+    }
+
+    for (auto& future : futures) {
+        future.get();
     }
 }
 
 TEST_CASE("ResampleWithPusher", "[SRCpp]")
 {
+    std::vector<std::future<void>> futures;
+
     for (auto frames : { 16, 256, 257, 500 }) {
         for (auto type : { SRCpp::Type::Sinc_BestQuality,
                  SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
@@ -266,37 +278,45 @@ TEST_CASE("ResampleWithPusher", "[SRCpp]")
                 for (auto hz : { std::vector<float> { 3000.0f },
                          std::vector<float> { 3000.0f, 40.0f },
                          std::vector<float> { 3000.0f, 40.0f, 1004.0f } }) {
-                    auto channels = hz.size();
-                    auto input = makeSin(hz, 48000.0, frames);
+                    futures.push_back(std::async(std::launch::async, [=]() {
+                        auto channels = hz.size();
+                        auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference
-                        = CreatePushReference(input, channels, factor, type);
-                    {
-                        auto output = ConvertWithPush(
-                            input, channels, factor, type, frames);
+                        auto reference = CreatePushReference(
+                            input, channels, factor, type);
+                        {
+                            auto output = ConvertWithPush(
+                                input, channels, factor, type, frames);
 
-                        REQUIRE(output == reference);
-                    }
-                    for (auto input_size : { 4, 8, 16, 32, 64 }) {
-                        auto output = ConvertWithPush(
-                            input, channels, factor, type, input_size);
-
-                        if (type == SRCpp::Type::ZeroOrderHold) {
-                            auto mangledReference = reference;
-                            mangledReference.resize(output.size());
-                            REQUIRE(output == mangledReference);
-                        } else {
                             REQUIRE(output == reference);
                         }
-                    }
+                        for (auto input_size : { 4, 8, 16, 32, 64 }) {
+                            auto output = ConvertWithPush(
+                                input, channels, factor, type, input_size);
+
+                            if (type == SRCpp::Type::ZeroOrderHold) {
+                                auto mangledReference = reference;
+                                mangledReference.resize(output.size());
+                                REQUIRE(output == mangledReference);
+                            } else {
+                                REQUIRE(output == reference);
+                            }
+                        }
+                    }));
                 }
             }
         }
+    }
+
+    for (auto& future : futures) {
+        future.get();
     }
 }
 
 TEST_CASE("ResampleWithPull", "[SRCpp]")
 {
+    std::vector<std::future<void>> futures;
+
     for (auto frames : { 16, 256, 257, 500 }) {
         for (auto type : { SRCpp::Type::Sinc_BestQuality,
                  SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
@@ -305,45 +325,29 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                 for (auto hz : { std::vector<float> { 3000.0f, 40.0f },
                          std::vector<float> { 3000.0f },
                          std::vector<float> { 3000.0f, 40.0f, 1004.0f } }) {
-                    auto channels = hz.size();
-                    auto input = makeSin(hz, 48000.0, frames);
+                    futures.push_back(std::async(std::launch::async, [=]() {
+                        auto channels = hz.size();
+                        auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference
-                        = CreatePushReference(input, channels, factor, type);
-                    {
-                        auto output
-                            = ConvertWithPull(input, channels, factor, type);
-                        REQUIRE(output.size() > 0);
-                        // fudge factor for pull
-                        if (std::abs(static_cast<int>(reference.size())
-                                - static_cast<int>(output.size()))
-                            == static_cast<int>(channels)) {
-                            auto mangledReference = reference;
-                            mangledReference.resize(output.size());
-                        } else {
-                            REQUIRE(output == reference);
+                        auto reference = CreatePushReference(
+                            input, channels, factor, type);
+                        {
+                            auto output = ConvertWithPull(
+                                input, channels, factor, type);
+                            REQUIRE(output.size() > 0);
+                            // fudge factor for pull
+                            if (std::abs(static_cast<int>(reference.size())
+                                    - static_cast<int>(output.size()))
+                                == static_cast<int>(channels)) {
+                                auto mangledReference = reference;
+                                mangledReference.resize(output.size());
+                            } else {
+                                REQUIRE(output == reference);
+                            }
                         }
-                    }
-                    for (auto input_size : { 4, 32, 33, 128 }) {
-                        auto output = ConvertWithPull(
-                            input, channels, factor, type, input_size);
-                        REQUIRE(output.size() > 0);
-
-                        // fudge factor for pull
-                        if (std::abs(static_cast<int>(reference.size())
-                                - static_cast<int>(output.size()))
-                            == static_cast<int>(channels)) {
-                            auto mangledReference = reference;
-                            mangledReference.resize(output.size());
-                        } else {
-                            REQUIRE(output == reference);
-                        }
-                    }
-                    for (auto output_frames : { 4, 32, 33, 128 }) {
-                        for (auto input_frames : { 4, 32, 33, 128 }) {
-                            auto output
-                                = ConvertWithPullOutputFrames(input, channels,
-                                    factor, type, output_frames, input_frames);
+                        for (auto input_size : { 4, 32, 33, 128 }) {
+                            auto output = ConvertWithPull(
+                                input, channels, factor, type, input_size);
                             REQUIRE(output.size() > 0);
 
                             // fudge factor for pull
@@ -356,9 +360,30 @@ TEST_CASE("ResampleWithPull", "[SRCpp]")
                                 REQUIRE(output == reference);
                             }
                         }
-                    }
+                        for (auto output_frames : { 4, 32, 33, 128 }) {
+                            for (auto input_frames : { 4, 32, 33, 128 }) {
+                                auto output = ConvertWithPullOutputFrames(input,
+                                    channels, factor, type, output_frames,
+                                    input_frames);
+                                REQUIRE(output.size() > 0);
+
+                                // fudge factor for pull
+                                if (std::abs(static_cast<int>(reference.size())
+                                        - static_cast<int>(output.size()))
+                                    == static_cast<int>(channels)) {
+                                    auto mangledReference = reference;
+                                    mangledReference.resize(output.size());
+                                } else {
+                                    REQUIRE(output == reference);
+                                }
+                            }
+                        }
+                    }));
                 }
             }
         }
+    }
+    for (auto& future : futures) {
+        future.get();
     }
 }
