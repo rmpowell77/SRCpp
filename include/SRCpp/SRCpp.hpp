@@ -42,7 +42,7 @@ enum struct Type : int {
     Linear = SRC_LINEAR
 };
 
-auto Resample(std::span<const float> input, std::span<float> output,
+inline auto Resample(std::span<const float> input, std::span<float> output,
     SRCpp::Type type, int channels, double factor)
     -> std::expected<std::span<float>, std::string>
 {
@@ -65,8 +65,9 @@ auto Resample(std::span<const float> input, std::span<float> output,
         static_cast<size_t>(src_data.output_frames_gen) };
 }
 
-auto Resample(std::span<const float> input, SRCpp::Type type, int channels,
-    double factor) -> std::expected<std::vector<float>, std::string>
+inline auto Resample(
+    std::span<const float> input, SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::vector<float>, std::string>
 {
     std::vector<float> output(
         std::ceil((input.size() + 1) * factor * channels));
@@ -92,7 +93,75 @@ public:
         }
     }
     ~PushConverter() { src_delete(state_); }
+    // Copy constructor
+    PushConverter(const PushConverter& other)
+        : type_(other.type_)
+        , channels_(other.channels_)
+        , factor_(other.factor_)
+        , reserved_input_(other.reserved_input_)
+        , last_input_(other.last_input_)
+        , input_frames_consumed_(other.input_frames_consumed_)
+        , output_frames_produced_(other.output_frames_produced_)
+    {
+        auto error = 0;
+        state_ = src_clone(other.state_, &error);
+        if (error != 0) {
+            throw std::runtime_error(src_strerror(error));
+        }
+    }
 
+    // Copy assignment operator
+    PushConverter& operator=(const PushConverter& other)
+    {
+        if (this != &other) {
+            src_delete(state_);
+            auto error = 0;
+            state_ = src_clone(other.state_, &error);
+            if (error != 0) {
+                throw std::runtime_error(src_strerror(error));
+            }
+            type_ = other.type_;
+            channels_ = other.channels_;
+            factor_ = other.factor_;
+            reserved_input_ = other.reserved_input_;
+            last_input_ = other.last_input_;
+            input_frames_consumed_ = other.input_frames_consumed_;
+            output_frames_produced_ = other.output_frames_produced_;
+        }
+        return *this;
+    }
+
+    // Move constructor
+    PushConverter(PushConverter&& other) noexcept
+        : state_(other.state_)
+        , type_(other.type_)
+        , channels_(other.channels_)
+        , factor_(other.factor_)
+        , reserved_input_(std::move(other.reserved_input_))
+        , last_input_(std::move(other.last_input_))
+        , input_frames_consumed_(other.input_frames_consumed_)
+        , output_frames_produced_(other.output_frames_produced_)
+    {
+        other.state_ = nullptr;
+    }
+
+    // Move assignment operator
+    PushConverter& operator=(PushConverter&& other) noexcept
+    {
+        if (this != &other) {
+            src_delete(state_);
+            state_ = other.state_;
+            type_ = other.type_;
+            channels_ = other.channels_;
+            factor_ = other.factor_;
+            reserved_input_ = std::move(other.reserved_input_);
+            last_input_ = std::move(other.last_input_);
+            input_frames_consumed_ = other.input_frames_consumed_;
+            output_frames_produced_ = other.output_frames_produced_;
+            other.state_ = nullptr;
+        }
+        return *this;
+    }
     // you pass in frames to consume, and where to put them
     // and you get back a span with the unused, and the valid data
     auto push(std::span<const float> input, std::span<float> output)
@@ -243,6 +312,32 @@ public:
     }
     ~PullConverter() { src_delete(state_); }
 
+    // Copying is dangerous, because then the callback is shared.
+    PullConverter(const PullConverter&) = delete;
+    PullConverter& operator=(const PullConverter&) = delete;
+
+    PullConverter(PullConverter&& other) noexcept
+        : callback_(std::move(other.callback_))
+        , state_(other.state_)
+        , channels_(other.channels_)
+        , factor_(other.factor_)
+        , dummy_(other.dummy_)
+    {
+        other.state_ = nullptr;
+    }
+
+    // Move assignment operator
+    PullConverter& operator=(PullConverter&& other) noexcept
+    {
+        if (this != &other) {
+            std::swap(callback_, other.callback_);
+            std::swap(state_, other.state_);
+            std::swap(channels_, other.channels_);
+            std::swap(factor_, other.factor_);
+            std::swap(dummy_, other.dummy_);
+        }
+        return *this;
+    }
     // you pass in frames to consume, and where to put them
     // and you get back a span with the unused, and the valid data
     auto pull(std::span<float> output)
