@@ -19,8 +19,7 @@ TEST_CASE("Resample", "[SRCpp]")
 
                     auto reference
                         = CreateOneShotReference(input, channels, factor, type);
-                    auto output
-                        = SRCpp::Resample(input, type, channels, factor);
+                    auto output = SRCpp::Convert(input, type, channels, factor);
 
                     REQUIRE(output == reference);
                 }

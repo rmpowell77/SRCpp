@@ -43,13 +43,13 @@ target_link_libraries(
   samplerate
 )
 
-add_executable(SRCppTestResample
-  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestResample.cpp
+add_executable(SRCppTestConvert
+  ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestConvert.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/SRCppTestUtils.cpp
 )
 
 target_link_libraries(
-  SRCppTestResample
+  SRCppTestConvert
   Catch2::Catch2WithMain
   SRCpp
   samplerate
@@ -66,13 +66,13 @@ target_link_libraries(
 )
 
 add_test(NAME SRCppTestCommon COMMAND SRCppTestCommon)
-add_test(NAME SRCppTestResample COMMAND SRCppTestResample)
+add_test(NAME SRCppTestConvert COMMAND SRCppTestConvert)
 add_test(NAME SRCppTestPull COMMAND SRCppTestPull)
 add_test(NAME SRCppTestPush COMMAND SRCppTestPush)
 add_test(NAME SRCppBuilds COMMAND SRCppBuilds)
 
 SetupCompilerForTarget(SRCppTestCommon)
-SetupCompilerForTarget(SRCppTestResample)
+SetupCompilerForTarget(SRCppTestConvert)
 SetupCompilerForTarget(SRCppTestPush)
 SetupCompilerForTarget(SRCppTestPull)
 SetupCompilerForTarget(SRCppBuilds)
