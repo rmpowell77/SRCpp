@@ -3,7 +3,7 @@
 #include <numbers>
 #include <ranges>
 
-// this effectively is what SRCpp::Resample does
+// this effectively is what SRCpp::Convert does
 auto CreateOneShotReference(const std::vector<float>& input, size_t channels,
     double factor, SRCpp::Type type) -> std::vector<float>
 {

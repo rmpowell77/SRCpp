@@ -42,7 +42,82 @@ enum struct Type : int {
     Linear = SRC_LINEAR
 };
 
-inline auto Resample(std::span<const float> input, std::span<float> output,
+auto Convert(std::span<const float> input, std::span<float> output,
+    SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::span<float>, std::string>;
+auto Convert(std::span<const float> input, SRCpp::Type type, int channels,
+    double factor) -> std::expected<std::vector<float>, std::string>;
+
+class PushConverter {
+public:
+    PushConverter(SRCpp::Type type, int channels, double factor);
+    ~PushConverter();
+    PushConverter(const PushConverter& other);
+    PushConverter& operator=(const PushConverter& other);
+    PushConverter(PushConverter&& other) noexcept;
+    PushConverter& operator=(PushConverter&& other) noexcept;
+
+    // you pass in frames to consume, and where to put them
+    // This version returns the valid data of output converted to
+    auto convert(std::span<const float> input, std::span<float> output)
+        -> std::expected<std::span<float>, std::string>;
+
+    auto convert(std::span<const float> input)
+        -> std::expected<std::vector<float>, std::string>;
+
+    // flush will push any remaining data through
+    auto flush() -> std::expected<std::vector<float>, std::string>;
+
+private:
+    SRC_STATE* state_ { nullptr };
+    SRCpp::Type type_ { SRC_SINC_BEST_QUALITY };
+    int channels_ { 0 };
+    double factor_ { 1.0 };
+    const float dummy_ {};
+    std::vector<float> reserved_input_;
+    std::vector<float> last_input_;
+    size_t input_frames_consumed_ { 0 };
+    size_t output_frames_produced_ { 0 };
+
+    auto convert(
+        std::span<const float> input, std::span<float> output, bool end)
+        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+            std::string>;
+    auto convertWithFixFor208(
+        std::span<const float> input, std::span<float> output, bool end)
+        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+            std::string>;
+};
+
+class PullConverter {
+public:
+    using callback_t = std::function<std::span<float>()>;
+    PullConverter(
+        callback_t callback, SRCpp::Type type, int channels, double factor);
+    ~PullConverter();
+
+    // Copying is dangerous, because then the callback is shared.
+    PullConverter(const PullConverter&) = delete;
+    PullConverter& operator=(const PullConverter&) = delete;
+    PullConverter(PullConverter&& other) noexcept;
+    PullConverter& operator=(PullConverter&& other) noexcept;
+
+    // you pass in frames to consume, and where to put them
+    // and you get back a span with the unused, and the valid data
+    auto convert(std::span<float> output)
+        -> std::expected<std::span<float>, std::string>;
+
+private:
+    auto handle_calback(float** data) -> long;
+    callback_t callback_;
+    SRC_STATE* state_ { nullptr };
+    int channels_ { 0 };
+    double factor_ { 1.0 };
+    float dummy_ {};
+};
+
+// Implementation details
+inline auto Convert(std::span<const float> input, std::span<float> output,
     SRCpp::Type type, int channels, double factor)
     -> std::expected<std::span<float>, std::string>
 {
@@ -65,13 +140,13 @@ inline auto Resample(std::span<const float> input, std::span<float> output,
         static_cast<size_t>(src_data.output_frames_gen) };
 }
 
-inline auto Resample(
+inline auto Convert(
     std::span<const float> input, SRCpp::Type type, int channels, double factor)
     -> std::expected<std::vector<float>, std::string>
 {
     std::vector<float> output(
         std::ceil((input.size() + 1) * factor * channels));
-    auto result = Resample(input, output, type, channels, factor);
+    auto result = Convert(input, output, type, channels, factor);
     if (!result.has_value()) {
         return std::unexpected(result.error());
     }
@@ -79,299 +154,268 @@ inline auto Resample(
     return output;
 }
 
-class PushConverter {
-public:
-    PushConverter(SRCpp::Type type, int channels, double factor)
-        : type_ { type }
-        , channels_ { channels }
-        , factor_ { factor }
-    {
-        auto error = 0;
-        state_ = src_new(static_cast<int>(type), channels, &error);
-        if (error != 0) {
-            throw std::runtime_error(src_strerror(error));
-        }
+inline PushConverter::PushConverter(
+    SRCpp::Type type, int channels, double factor)
+    : type_ { type }
+    , channels_ { channels }
+    , factor_ { factor }
+{
+    auto error = 0;
+    state_ = src_new(static_cast<int>(type), channels, &error);
+    if (error != 0) {
+        throw std::runtime_error(src_strerror(error));
     }
-    ~PushConverter() { src_delete(state_); }
-    // Copy constructor
-    PushConverter(const PushConverter& other)
-        : type_(other.type_)
-        , channels_(other.channels_)
-        , factor_(other.factor_)
-        , reserved_input_(other.reserved_input_)
-        , last_input_(other.last_input_)
-        , input_frames_consumed_(other.input_frames_consumed_)
-        , output_frames_produced_(other.output_frames_produced_)
-    {
+}
+
+inline PushConverter::~PushConverter() { src_delete(state_); }
+
+inline PushConverter::PushConverter(const PushConverter& other)
+    : type_(other.type_)
+    , channels_(other.channels_)
+    , factor_(other.factor_)
+    , reserved_input_(other.reserved_input_)
+    , last_input_(other.last_input_)
+    , input_frames_consumed_(other.input_frames_consumed_)
+    , output_frames_produced_(other.output_frames_produced_)
+{
+    auto error = 0;
+    state_ = src_clone(other.state_, &error);
+    if (error != 0) {
+        throw std::runtime_error(src_strerror(error));
+    }
+}
+
+inline PushConverter& PushConverter::operator=(const PushConverter& other)
+{
+    if (this != &other) {
+        src_delete(state_);
         auto error = 0;
         state_ = src_clone(other.state_, &error);
         if (error != 0) {
             throw std::runtime_error(src_strerror(error));
         }
+        type_ = other.type_;
+        channels_ = other.channels_;
+        factor_ = other.factor_;
+        reserved_input_ = other.reserved_input_;
+        last_input_ = other.last_input_;
+        input_frames_consumed_ = other.input_frames_consumed_;
+        output_frames_produced_ = other.output_frames_produced_;
     }
+    return *this;
+}
 
-    // Copy assignment operator
-    PushConverter& operator=(const PushConverter& other)
-    {
-        if (this != &other) {
-            src_delete(state_);
-            auto error = 0;
-            state_ = src_clone(other.state_, &error);
-            if (error != 0) {
-                throw std::runtime_error(src_strerror(error));
-            }
-            type_ = other.type_;
-            channels_ = other.channels_;
-            factor_ = other.factor_;
-            reserved_input_ = other.reserved_input_;
-            last_input_ = other.last_input_;
-            input_frames_consumed_ = other.input_frames_consumed_;
-            output_frames_produced_ = other.output_frames_produced_;
-        }
-        return *this;
-    }
+inline PushConverter::PushConverter(PushConverter&& other) noexcept
+    : state_(other.state_)
+    , type_(other.type_)
+    , channels_(other.channels_)
+    , factor_(other.factor_)
+    , reserved_input_(std::move(other.reserved_input_))
+    , last_input_(std::move(other.last_input_))
+    , input_frames_consumed_(other.input_frames_consumed_)
+    , output_frames_produced_(other.output_frames_produced_)
+{
+    other.state_ = nullptr;
+}
 
-    // Move constructor
-    PushConverter(PushConverter&& other) noexcept
-        : state_(other.state_)
-        , type_(other.type_)
-        , channels_(other.channels_)
-        , factor_(other.factor_)
-        , reserved_input_(std::move(other.reserved_input_))
-        , last_input_(std::move(other.last_input_))
-        , input_frames_consumed_(other.input_frames_consumed_)
-        , output_frames_produced_(other.output_frames_produced_)
-    {
+inline PushConverter& PushConverter::operator=(PushConverter&& other) noexcept
+{
+    if (this != &other) {
+        src_delete(state_);
+        state_ = other.state_;
+        type_ = other.type_;
+        channels_ = other.channels_;
+        factor_ = other.factor_;
+        reserved_input_ = std::move(other.reserved_input_);
+        last_input_ = std::move(other.last_input_);
+        input_frames_consumed_ = other.input_frames_consumed_;
+        output_frames_produced_ = other.output_frames_produced_;
         other.state_ = nullptr;
     }
+    return *this;
+}
 
-    // Move assignment operator
-    PushConverter& operator=(PushConverter&& other) noexcept
-    {
-        if (this != &other) {
-            src_delete(state_);
-            state_ = other.state_;
-            type_ = other.type_;
-            channels_ = other.channels_;
-            factor_ = other.factor_;
-            reserved_input_ = std::move(other.reserved_input_);
-            last_input_ = std::move(other.last_input_);
-            input_frames_consumed_ = other.input_frames_consumed_;
-            output_frames_produced_ = other.output_frames_produced_;
-            other.state_ = nullptr;
-        }
-        return *this;
+inline auto PushConverter::convert(std::span<const float> input,
+    std::span<float> output) -> std::expected<std::span<float>, std::string>
+{
+    reserved_input_.insert(reserved_input_.end(), input.begin(), input.end());
+    auto result = convertWithFixFor208(reserved_input_, output, input.empty());
+    if (!result.has_value()) {
+        return std::unexpected(result.error());
     }
-    // you pass in frames to consume, and where to put them
-    // and you get back a span with the unused, and the valid data
-    auto push(std::span<const float> input, std::span<float> output)
-        -> std::expected<std::span<float>, std::string>
-    {
-        reserved_input_.insert(
-            reserved_input_.end(), input.begin(), input.end());
-        auto result
-            = convertWithFixFor208(reserved_input_, output, input.empty());
-        if (!result.has_value()) {
-            return std::unexpected(result.error());
-        }
-        auto& [input_data, output_data] = result.value();
-        std::copy(
-            input_data.begin(), input_data.end(), reserved_input_.begin());
-        reserved_input_.resize(input_data.size());
+    auto& [input_data, output_data] = result.value();
+    std::copy(input_data.begin(), input_data.end(), reserved_input_.begin());
+    reserved_input_.resize(input_data.size());
 
-        return output_data;
+    return output_data;
+}
+
+inline auto PushConverter::convert(std::span<const float> input)
+    -> std::expected<std::vector<float>, std::string>
+{
+    auto expected_frames_produced
+        = static_cast<size_t>(std::ceil(input_frames_consumed_ * factor_));
+    auto amount = [&]() -> size_t {
+        if (!input.empty()) {
+            return std::ceil((input.size() / channels_) * factor_);
+        }
+        if (expected_frames_produced >= output_frames_produced_) {
+            return expected_frames_produced - output_frames_produced_;
+        }
+        return 0;
+    }() + 1;
+    std::vector<float> output(amount * channels_);
+    auto result = convert(input, output);
+    if (!result.has_value()) {
+        return std::unexpected(result.error());
     }
+    output.resize(result->size());
+    return output;
+}
 
-    auto push(std::span<const float> input)
-        -> std::expected<std::vector<float>, std::string>
-    {
-        auto expected_frames_produced
-            = static_cast<size_t>(std::ceil(input_frames_consumed_ * factor_));
-        auto amount = [&]() -> size_t {
-            if (!input.empty()) {
-                return std::ceil((input.size() / channels_) * factor_);
-            }
-            if (expected_frames_produced >= output_frames_produced_) {
-                return expected_frames_produced - output_frames_produced_;
-            }
-            return 0;
-        }() + 1;
-        std::vector<float> output(amount * channels_);
-        auto result = push(input, output);
-        if (!result.has_value()) {
-            return std::unexpected(result.error());
-        }
-        output.resize(result->size());
-        return output;
+inline auto PushConverter::flush()
+    -> std::expected<std::vector<float>, std::string>
+{
+    return convert({});
+}
+
+inline auto PushConverter::convert(
+    std::span<const float> input, std::span<float> output, bool end)
+    -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+        std::string>
+{
+    // if we don't consume input data, we need to keep trying
+    auto* input_ptr = input.empty() ? &dummy_ : input.data();
+    auto* output_ptr = output.data();
+    auto input_frames = input.size() / channels_;
+    auto output_frames = output.size() / channels_;
+    auto src_data = SRC_DATA {
+        input_ptr,
+        output_ptr,
+        static_cast<long>(input_frames),
+        static_cast<long>(output_frames),
+        0,
+        0,
+        end,
+        factor_,
+    };
+    if (auto result = src_process(state_, &src_data); result != 0) {
+        return std::unexpected(src_strerror(result));
     }
+    input_frames_consumed_ += src_data.input_frames_used;
+    output_frames_produced_ += src_data.output_frames_gen;
 
-private:
-    SRC_STATE* state_ { nullptr };
-    SRCpp::Type type_ { SRC_SINC_BEST_QUALITY };
-    int channels_ { 0 };
-    double factor_ { 1.0 };
-    const float dummy_ {};
-    std::vector<float> reserved_input_;
-    std::vector<float> last_input_;
-    size_t input_frames_consumed_ { 0 };
-    size_t output_frames_produced_ { 0 };
+    return std::pair { input.subspan(src_data.input_frames_used * channels_),
+        output.subspan(0, src_data.output_frames_gen * channels_) };
+}
 
-    // you pass in frames to consume, and where to put them
-    // and you get back a span with the unused, and the valid data
-    auto convert(
-        std::span<const float> input, std::span<float> output, bool end)
-        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
-            std::string>
-    {
-        // if we don't consume input data, we need to keep trying
-        auto* input_ptr = input.empty() ? &dummy_ : input.data();
-        auto* output_ptr = output.data();
-        auto input_frames = input.size() / channels_;
-        auto output_frames = output.size() / channels_;
-        auto src_data = SRC_DATA {
-            input_ptr,
-            output_ptr,
-            static_cast<long>(input_frames),
-            static_cast<long>(output_frames),
-            0,
-            0,
-            end,
-            factor_,
-        };
-        if (auto result = src_process(state_, &src_data); result != 0) {
-            return std::unexpected(src_strerror(result));
-        }
-        input_frames_consumed_ += src_data.input_frames_used;
-        output_frames_produced_ += src_data.output_frames_gen;
-
-        return std::pair { input.subspan(
-                               src_data.input_frames_used * channels_),
-            output.subspan(0, src_data.output_frames_gen * channels_) };
-    }
-    auto convertWithFixFor208(
-        std::span<const float> input, std::span<float> output, bool end)
-        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
-            std::string>
-    {
-        // https://github.com/libsndfile/libsamplerate/issues/208
-        // When there is 1 frame of data, the linear SRC assumes it can read
-        // the previous values and reads off the begin of the array.
-        // Temporary fix until that is resolved.
-        //
-        if (type_ != SRCpp::Type::Linear) {
-            return convert(input, output, end);
-        }
-
-        auto result = [&] {
-            if (input.size() == static_cast<size_t>(channels_)) {
-                last_input_.insert(
-                    last_input_.end(), input.begin(), input.end());
-                return convert({ last_input_.data() + channels_, input.size() },
-                    output, end);
-            }
-            return convert(input, output, end);
-        }();
-        if (!result.has_value()) {
-            return result;
-        }
-
-        auto& [input_unused, output_created] = result.value();
-        auto input_data_used = input.size() - input_unused.size();
-
-        // if we are linear, save the last input for next time
-        if (input_data_used) {
-            last_input_.assign(input.data() + input_data_used - channels_,
-                input.data() + input_data_used);
-        } else {
-            last_input_.clear();
-        }
-
-        return std::pair { input.subspan(input_data_used), output_created };
-    }
-};
-
-class PullConverter {
-public:
-    using callback_t = std::function<std::span<float>()>;
-    PullConverter(
-        callback_t callback, SRCpp::Type type, int channels, double factor)
-        : callback_(callback)
-        , channels_ { channels }
-        , factor_ { factor }
-    {
-        auto error = 0;
-        state_ = src_callback_new(
-            [](void* cb_data, float** data) -> long {
-                auto* self = static_cast<PullConverter*>(cb_data);
-                return self->handle_calback(data);
-            },
-            static_cast<int>(type), channels, &error, this);
-        if (error != 0) {
-            throw std::runtime_error(src_strerror(error));
-        }
-    }
-    ~PullConverter() { src_delete(state_); }
-
-    // Copying is dangerous, because then the callback is shared.
-    PullConverter(const PullConverter&) = delete;
-    PullConverter& operator=(const PullConverter&) = delete;
-
-    PullConverter(PullConverter&& other) noexcept
-        : callback_(std::move(other.callback_))
-        , state_(other.state_)
-        , channels_(other.channels_)
-        , factor_(other.factor_)
-        , dummy_(other.dummy_)
-    {
-        other.state_ = nullptr;
+inline auto PushConverter::convertWithFixFor208(
+    std::span<const float> input, std::span<float> output, bool end)
+    -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+        std::string>
+{
+    // https://github.com/libsndfile/libsamplerate/issues/208
+    // When there is 1 frame of data, the linear SRC assumes it can read
+    // the previous values and reads off the begin of the array.
+    // Temporary fix until that is resolved.
+    //
+    if (type_ != SRCpp::Type::Linear) {
+        return convert(input, output, end);
     }
 
-    // Move assignment operator
-    PullConverter& operator=(PullConverter&& other) noexcept
-    {
-        if (this != &other) {
-            std::swap(callback_, other.callback_);
-            std::swap(state_, other.state_);
-            std::swap(channels_, other.channels_);
-            std::swap(factor_, other.factor_);
-            std::swap(dummy_, other.dummy_);
+    auto result = [&] {
+        if (input.size() == static_cast<size_t>(channels_)) {
+            last_input_.insert(last_input_.end(), input.begin(), input.end());
+            return convert(
+                { last_input_.data() + channels_, input.size() }, output, end);
         }
-        return *this;
-    }
-    // you pass in frames to consume, and where to put them
-    // and you get back a span with the unused, and the valid data
-    auto pull(std::span<float> output)
-        -> std::expected<std::span<float>, std::string>
-    {
-        auto size = src_callback_read(
-            state_, factor_, output.size() / channels_, output.data());
-        return output.subspan(0, size * channels_);
+        return convert(input, output, end);
+    }();
+    if (!result.has_value()) {
+        return result;
     }
 
-private:
-    auto handle_calback(float** data) -> long
-    {
-        if (data == nullptr) {
-            return 0;
-        }
-        auto newData = callback_();
-        // SRC is pendantic that input and output buffers don't overlap, even if
-        // the input size is 0, such as an end iterator.  If a client has input
-        // and output buffers that are adjacent, this would cause an error.  So
-        // in the cases of a size of zero, we provide a safe dummy pointer.
-        if (newData.empty()) {
-            *data = &dummy_;
-            return 0;
-        }
-        *data = newData.data();
-        return newData.size() / channels_;
+    auto& [input_unused, output_created] = result.value();
+    auto input_data_used = input.size() - input_unused.size();
+
+    // if we are linear, save the last input for next time
+    if (input_data_used) {
+        last_input_.assign(input.data() + input_data_used - channels_,
+            input.data() + input_data_used);
+    } else {
+        last_input_.clear();
     }
-    callback_t callback_;
-    SRC_STATE* state_ { nullptr };
-    int channels_ { 0 };
-    double factor_ { 1.0 };
-    float dummy_ {};
-};
+
+    return std::pair { input.subspan(input_data_used), output_created };
+}
+
+inline PullConverter::PullConverter(
+    callback_t callback, SRCpp::Type type, int channels, double factor)
+    : callback_(callback)
+    , channels_ { channels }
+    , factor_ { factor }
+{
+    auto error = 0;
+    state_ = src_callback_new(
+        [](void* cb_data, float** data) -> long {
+            auto* self = static_cast<PullConverter*>(cb_data);
+            return self->handle_calback(data);
+        },
+        static_cast<int>(type), channels, &error, this);
+    if (error != 0) {
+        throw std::runtime_error(src_strerror(error));
+    }
+}
+
+inline PullConverter::~PullConverter() { src_delete(state_); }
+
+inline PullConverter::PullConverter(PullConverter&& other) noexcept
+    : callback_(std::move(other.callback_))
+    , state_(other.state_)
+    , channels_(other.channels_)
+    , factor_(other.factor_)
+    , dummy_(other.dummy_)
+{
+    other.state_ = nullptr;
+}
+
+inline PullConverter& PullConverter::operator=(PullConverter&& other) noexcept
+{
+    if (this != &other) {
+        std::swap(callback_, other.callback_);
+        std::swap(state_, other.state_);
+        std::swap(channels_, other.channels_);
+        std::swap(factor_, other.factor_);
+        std::swap(dummy_, other.dummy_);
+    }
+    return *this;
+}
+
+inline auto PullConverter::convert(std::span<float> output)
+    -> std::expected<std::span<float>, std::string>
+{
+    auto size = src_callback_read(
+        state_, factor_, output.size() / channels_, output.data());
+    return output.subspan(0, size * channels_);
+}
+
+inline auto PullConverter::handle_calback(float** data) -> long
+{
+    if (data == nullptr) {
+        return 0;
+    }
+    auto newData = callback_();
+    // SRC is pendantic that input and output buffers don't overlap, even if
+    // the input size is 0, such as an end iterator.  If a client has input
+    // and output buffers that are adjacent, this would cause an error.  So
+    // in the cases of a size of zero, we provide a safe dummy pointer.
+    if (newData.empty()) {
+        *data = &dummy_;
+        return 0;
+    }
+    *data = newData.data();
+    return newData.size() / channels_;
+}
 }
 
 // Custom formatter specialization for SRC_DATA

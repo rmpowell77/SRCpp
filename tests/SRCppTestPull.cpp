@@ -25,7 +25,7 @@ auto ConvertWithPull(std::vector<float> input, size_t channels, double factor,
         return result;
     };
     auto puller = SRCpp::PullConverter(callback, type, channels, factor);
-    auto data = puller.pull(output);
+    auto data = puller.convert(output);
     if (!data.has_value()) {
         throw std::runtime_error(data.error());
     }
@@ -60,7 +60,7 @@ auto ConvertWithPullOutputFrames(std::vector<float> input, size_t channels,
         auto toPull = std::min(output_frames, framesExpected - framesProduced);
         auto pullBuffer = std::span { output.data() + framesProduced * channels,
             toPull * channels };
-        auto data = puller.pull(output);
+        auto data = puller.convert(output);
         if (!data.has_value()) {
             throw std::runtime_error(data.error());
         }
@@ -70,7 +70,7 @@ auto ConvertWithPullOutputFrames(std::vector<float> input, size_t channels,
     return output;
 }
 
-TEST_CASE("ResampleWithPull", "[SRCpp]")
+TEST_CASE("PullConverter", "[SRCpp]")
 {
     for (auto frames : { 16, 256, 257, 500 }) {
         for (auto type : { SRCpp::Type::Sinc_BestQuality,
@@ -172,7 +172,7 @@ TEST_CASE("Test moving a pull converters work", "[SRCpp]")
         auto toPull = 20;
         auto pullBuffer = std::span { output.data() + framesProduced * channels,
             toPull * channels };
-        auto data = puller.pull(output);
+        auto data = puller.convert(output);
         if (!data.has_value()) {
             throw std::runtime_error(data.error());
         }
@@ -184,7 +184,7 @@ TEST_CASE("Test moving a pull converters work", "[SRCpp]")
         auto toPull = std::min(output_frames, framesExpected - framesProduced);
         auto pullBuffer = std::span { output.data() + framesProduced * channels,
             toPull * channels };
-        auto data = puller2.pull(output);
+        auto data = puller2.convert(output);
         if (!data.has_value()) {
             throw std::runtime_error(data.error());
         }
