@@ -12,6 +12,8 @@ if(NOT CMAKE_CXX_STANDARD OR CMAKE_CXX_STANDARD LESS 23)
 	set(CMAKE_CXX_STANDARD 23)
 endif()
 
+# set(CMAKE_CXX_CLANG_TIDY "clang-tidy;-format-style=file")
+
 macro(SetupCompilerForTarget arg)
   if(NOT MSVC)
   target_compile_options(${arg} PRIVATE -Wall -Wextra)

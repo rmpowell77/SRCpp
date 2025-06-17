@@ -284,7 +284,6 @@ inline auto PushConverter::convert(
     -> std::expected<std::pair<std::span<const float>, std::span<float>>,
         std::string>
 {
-    // if we don't consume input data, we need to keep trying
     auto* input_ptr = input.empty() ? &dummy_ : input.data();
     auto* output_ptr = output.data();
     auto input_frames = input.size() / channels_;
@@ -318,7 +317,6 @@ inline auto PushConverter::convertWithFixFor208(
     // When there is 1 frame of data, the linear SRC assumes it can read
     // the previous values and reads off the begin of the array.
     // Temporary fix until that is resolved.
-    //
     if (type_ != SRCpp::Type::Linear) {
         return convert(input, output, end);
     }

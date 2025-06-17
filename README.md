@@ -9,7 +9,28 @@ SRCpp provides a modern C++ interface for libsamplerate.  It requires C++23, and
 The `Convert` method allows you to process an entire audio buffer in one go. This is ideal for scenarios where you have all the audio data available upfront and need to perform a straightforward conversion.
 
 ```cpp
-// Example: Using SRCpp::Convert
+namespace SRCpp {
+
+enum struct Type : int {
+    Sinc_BestQuality = SRC_SINC_BEST_QUALITY,
+    Sinc_MediumQuality = SRC_SINC_MEDIUM_QUALITY,
+    Sinc_Fastest = SRC_SINC_FASTEST,
+    ZeroOrderHold = SRC_ZERO_ORDER_HOLD,
+    Linear = SRC_LINEAR
+};
+
+auto Convert(std::span<const float> input, std::span<float> output,
+    SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::span<float>, std::string>;
+auto Convert(std::span<const float> input, SRCpp::Type type, int channels,
+    double factor) -> std::expected<std::vector<float>, std::string>;
+
+} // namespace SRCpp
+```
+
+Here is an example using SRCpp::Convert.
+
+```cpp
 #include "SRCpp.h"
 #include <vector>
 #include <print>
@@ -35,6 +56,30 @@ int main() {
 
 ### 2. PushConverter
 The `PushConvert` enables you to feed audio data incrementally. This is useful for streaming applications where audio data arrives in chunks, and you want to process it as it becomes available.  The SRC wrapper may hold on to samples so it is necessary to "flush" the data.
+
+There are two flavors: one where memory for output is supplied in the form of a `std::span`, and one where a `std::vector` is created and returned to hold on to the result.  It is incumbent on the caller to ensure they supply an appropriately sized output `std::span`.
+
+```cpp
+namespace SRCpp {
+
+class PushConverter {
+public:
+    PushConverter(SRCpp::Type type, int channels, double factor);
+
+    auto convert(std::span<const float> input, std::span<float> output)
+        -> std::expected<std::span<float>, std::string>;
+
+    auto convert(std::span<const float> input)
+        -> std::expected<std::vector<float>, std::string>;
+
+    // flush will push any remaining data through
+    auto flush() -> std::expected<std::vector<float>, std::string>;
+};
+
+} // namespace SRCpp
+```
+
+Here is an example using SRCpp::PushConverter.
 
 ```cpp
 // Example: Using SRCpp::Push
@@ -74,8 +119,26 @@ int main() {
 ### 3. Pull
 The `Pull` method allows you to request converted audio data on demand. This is particularly suited for cases where the consumer of the audio data dictates the pace of processing.  Returning an empty `span` indicates that the all the data has been consumed.
 
+
 ```cpp
-// Example: Using SRCpp::Pull
+namespace SRCpp {
+
+class PullConverter {
+public:
+    using callback_t = std::function<std::span<float>()>;
+    PullConverter(
+        callback_t callback, SRCpp::Type type, int channels, double factor);
+
+    auto convert(std::span<float> output)
+        -> std::expected<std::span<float>, std::string>;
+};
+
+} // namespace SRCpp
+```
+
+Here is an example using SRCpp::PullConverter.
+
+```cpp
 #include "SRCpp.h"
 #include <vector>
 #include <print>
