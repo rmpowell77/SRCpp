@@ -11,4 +11,4 @@ target_link_libraries(
   SRCpp
 )
 
-SetupCompilerForTarget(SRCppExamples)
+SetupCompilerForTarget(SRCppExamples 23)

@@ -24,13 +24,21 @@ SOFTWARE.
 */
 
 #include <cmath>
-#include <expected>
 #include <format>
 #include <functional>
+#include <optional>
 #include <samplerate.h>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
+
+#if __cplusplus >= 202302L
+#include <expected>
+#define SRCPP_USE_CPP23 1
+#else
+#define SRCPP_USE_CPP23 0
+#endif
 
 namespace SRCpp {
 
@@ -42,11 +50,20 @@ enum struct Type : int {
     Linear = SRC_LINEAR
 };
 
-auto Convert(std::span<const float> input, std::span<float> output,
+#if SRCPP_USE_CPP23
+auto Convert_expected(std::span<const float> input, std::span<float> output,
     SRCpp::Type type, int channels, double factor)
     -> std::expected<std::span<float>, std::string>;
+auto Convert_expected(
+    std::span<const float> input, SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::vector<float>, std::string>;
+#endif // SRCPP_USE_CPP23
+
+auto Convert(std::span<const float> input, std::span<float> output,
+    SRCpp::Type type, int channels, double factor)
+    -> std::pair<std::optional<std::span<float>>, std::string>;
 auto Convert(std::span<const float> input, SRCpp::Type type, int channels,
-    double factor) -> std::expected<std::vector<float>, std::string>;
+    double factor) -> std::pair<std::optional<std::vector<float>>, std::string>;
 
 class PushConverter {
 public:
@@ -57,16 +74,23 @@ public:
     PushConverter(PushConverter&& other) noexcept;
     PushConverter& operator=(PushConverter&& other) noexcept;
 
-    // you pass in frames to consume, and where to put them
-    // This version returns the valid data of output converted to
-    auto convert(std::span<const float> input, std::span<float> output)
+#if SRCPP_USE_CPP23
+    auto convert_expected(std::span<const float> input, std::span<float> output)
         -> std::expected<std::span<float>, std::string>;
 
-    auto convert(std::span<const float> input)
+    auto convert_expected(std::span<const float> input)
         -> std::expected<std::vector<float>, std::string>;
 
-    // flush will push any remaining data through
-    auto flush() -> std::expected<std::vector<float>, std::string>;
+    auto flush_expected() -> std::expected<std::vector<float>, std::string>;
+#endif // SRCPP_USE_CPP23
+
+    auto convert(std::span<const float> input, std::span<float> output)
+        -> std::pair<std::optional<std::span<float>>, std::string>;
+
+    auto convert(std::span<const float> input)
+        -> std::pair<std::optional<std::vector<float>>, std::string>;
+
+    auto flush() -> std::pair<std::optional<std::vector<float>>, std::string>;
 
 private:
     SRC_STATE* state_ { nullptr };
@@ -81,11 +105,13 @@ private:
 
     auto convert(
         std::span<const float> input, std::span<float> output, bool end)
-        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+        -> std::pair<
+            std::optional<std::pair<std::span<const float>, std::span<float>>>,
             std::string>;
     auto convertWithFixFor208(
         std::span<const float> input, std::span<float> output, bool end)
-        -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+        -> std::pair<
+            std::optional<std::pair<std::span<const float>, std::span<float>>>,
             std::string>;
 };
 
@@ -102,10 +128,13 @@ public:
     PullConverter(PullConverter&& other) noexcept;
     PullConverter& operator=(PullConverter&& other) noexcept;
 
-    // you pass in frames to consume, and where to put them
-    // and you get back a span with the unused, and the valid data
-    auto convert(std::span<float> output)
+#if SRCPP_USE_CPP23
+    auto convert_expected(std::span<float> output)
         -> std::expected<std::span<float>, std::string>;
+#endif // SRCPP_USE_CPP23
+
+    auto convert(std::span<float> output)
+        -> std::pair<std::optional<std::span<float>>, std::string>;
 
 private:
     auto handle_calback(float** data) -> long;
@@ -117,9 +146,33 @@ private:
 };
 
 // Implementation details
+#if SRCPP_USE_CPP23
+inline auto Convert_expected(std::span<const float> input,
+    std::span<float> output, SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::span<float>, std::string>
+{
+    auto [result, error] = Convert(input, output, type, channels, factor);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+
+inline auto Convert_expected(
+    std::span<const float> input, SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::vector<float>, std::string>
+{
+    auto [result, error] = Convert(input, type, channels, factor);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+#endif // SRCPP_USE_CPP23
+
 inline auto Convert(std::span<const float> input, std::span<float> output,
     SRCpp::Type type, int channels, double factor)
-    -> std::expected<std::span<float>, std::string>
+    -> std::pair<std::optional<std::span<float>>, std::string>
 {
     auto src_data = SRC_DATA {
         input.data(),
@@ -133,25 +186,26 @@ inline auto Convert(std::span<const float> input, std::span<float> output,
     };
     if (auto result = src_simple(&src_data, static_cast<int>(type), channels);
         result != 0) {
-        return std::unexpected(src_strerror(result));
+        return { std::nullopt, src_strerror(result) };
     }
 
-    return std::span { output.data(),
-        static_cast<size_t>(src_data.output_frames_gen) };
+    return { std::span { output.data(),
+                 static_cast<size_t>(src_data.output_frames_gen) },
+        {} };
 }
 
 inline auto Convert(
     std::span<const float> input, SRCpp::Type type, int channels, double factor)
-    -> std::expected<std::vector<float>, std::string>
+    -> std::pair<std::optional<std::vector<float>>, std::string>
 {
     std::vector<float> output(
         std::ceil((input.size() + 1) * factor * channels));
-    auto result = Convert(input, output, type, channels, factor);
+    auto [result, error] = Convert(input, output, type, channels, factor);
     if (!result.has_value()) {
-        return std::unexpected(result.error());
+        return { std::nullopt, error };
     }
     output.resize(result->size());
-    return output;
+    return { output, {} };
 }
 
 inline PushConverter::PushConverter(
@@ -235,23 +289,53 @@ inline PushConverter& PushConverter::operator=(PushConverter&& other) noexcept
     return *this;
 }
 
-inline auto PushConverter::convert(std::span<const float> input,
+#if SRCPP_USE_CPP23
+inline auto PushConverter::convert_expected(std::span<const float> input,
     std::span<float> output) -> std::expected<std::span<float>, std::string>
 {
+    auto [result, error] = convert(input, output);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+
+inline auto PushConverter::convert_expected(std::span<const float> input)
+    -> std::expected<std::vector<float>, std::string>
+{
+    auto [result, error] = convert(input);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+
+inline auto PushConverter::flush_expected()
+    -> std::expected<std::vector<float>, std::string>
+{
+    return convert_expected({});
+}
+#endif // SRCPP_USE_CPP23
+
+inline auto PushConverter::convert(
+    std::span<const float> input, std::span<float> output)
+    -> std::pair<std::optional<std::span<float>>, std::string>
+{
     reserved_input_.insert(reserved_input_.end(), input.begin(), input.end());
-    auto result = convertWithFixFor208(reserved_input_, output, input.empty());
+    auto [result, error]
+        = convertWithFixFor208(reserved_input_, output, input.empty());
     if (!result.has_value()) {
-        return std::unexpected(result.error());
+        return { std::nullopt, error };
     }
     auto& [input_data, output_data] = result.value();
     std::copy(input_data.begin(), input_data.end(), reserved_input_.begin());
     reserved_input_.resize(input_data.size());
 
-    return output_data;
+    return { output_data, {} };
 }
 
 inline auto PushConverter::convert(std::span<const float> input)
-    -> std::expected<std::vector<float>, std::string>
+    -> std::pair<std::optional<std::vector<float>>, std::string>
 {
     auto expected_frames_produced
         = static_cast<size_t>(std::ceil(input_frames_consumed_ * factor_));
@@ -265,23 +349,24 @@ inline auto PushConverter::convert(std::span<const float> input)
         return 0;
     }() + 1;
     std::vector<float> output(amount * channels_);
-    auto result = convert(input, output);
+    auto [result, error] = convert(input, output);
     if (!result.has_value()) {
-        return std::unexpected(result.error());
+        return { std::nullopt, error };
     }
     output.resize(result->size());
-    return output;
+    return { output, {} };
 }
 
 inline auto PushConverter::flush()
-    -> std::expected<std::vector<float>, std::string>
+    -> std::pair<std::optional<std::vector<float>>, std::string>
 {
     return convert({});
 }
 
 inline auto PushConverter::convert(
     std::span<const float> input, std::span<float> output, bool end)
-    -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+    -> std::pair<
+        std::optional<std::pair<std::span<const float>, std::span<float>>>,
         std::string>
 {
     auto* input_ptr = input.empty() ? &dummy_ : input.data();
@@ -299,18 +384,20 @@ inline auto PushConverter::convert(
         factor_,
     };
     if (auto result = src_process(state_, &src_data); result != 0) {
-        return std::unexpected(src_strerror(result));
+        return { std::nullopt, src_strerror(result) };
     }
     input_frames_consumed_ += src_data.input_frames_used;
     output_frames_produced_ += src_data.output_frames_gen;
 
-    return std::pair { input.subspan(src_data.input_frames_used * channels_),
-        output.subspan(0, src_data.output_frames_gen * channels_) };
+    return { std::pair { input.subspan(src_data.input_frames_used * channels_),
+                 output.subspan(0, src_data.output_frames_gen * channels_) },
+        {} };
 }
 
 inline auto PushConverter::convertWithFixFor208(
     std::span<const float> input, std::span<float> output, bool end)
-    -> std::expected<std::pair<std::span<const float>, std::span<float>>,
+    -> std::pair<
+        std::optional<std::pair<std::span<const float>, std::span<float>>>,
         std::string>
 {
     // https://github.com/libsndfile/libsamplerate/issues/208
@@ -321,7 +408,7 @@ inline auto PushConverter::convertWithFixFor208(
         return convert(input, output, end);
     }
 
-    auto result = [&] {
+    auto [result, error] = [&] {
         if (input.size() == static_cast<size_t>(channels_)) {
             last_input_.insert(last_input_.end(), input.begin(), input.end());
             return convert(
@@ -330,7 +417,7 @@ inline auto PushConverter::convertWithFixFor208(
         return convert(input, output, end);
     }();
     if (!result.has_value()) {
-        return result;
+        return { std::nullopt, error };
     }
 
     auto& [input_unused, output_created] = result.value();
@@ -344,7 +431,7 @@ inline auto PushConverter::convertWithFixFor208(
         last_input_.clear();
     }
 
-    return std::pair { input.subspan(input_data_used), output_created };
+    return { std::pair { input.subspan(input_data_used), output_created }, {} };
 }
 
 inline PullConverter::PullConverter(
@@ -389,12 +476,27 @@ inline PullConverter& PullConverter::operator=(PullConverter&& other) noexcept
     return *this;
 }
 
-inline auto PullConverter::convert(std::span<float> output)
+#if SRCPP_USE_CPP23
+inline auto PullConverter::convert_expected(std::span<float> output)
     -> std::expected<std::span<float>, std::string>
+{
+    auto [result, error] = convert(output);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+#endif // SRCPP_USE_CPP23
+
+inline auto PullConverter::convert(std::span<float> output)
+    -> std::pair<std::optional<std::span<float>>, std::string>
 {
     auto size = src_callback_read(
         state_, factor_, output.size() / channels_, output.data());
-    return output.subspan(0, size * channels_);
+    if (size < 0) {
+        return { std::nullopt, src_strerror(src_error(state_)) };
+    }
+    return { output.subspan(0, size * channels_), {} };
 }
 
 inline auto PullConverter::handle_calback(float** data) -> long
