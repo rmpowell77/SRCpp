@@ -4,23 +4,6 @@
 #include <numbers>
 #include <ranges>
 
-auto ConvertWithPush(const std::vector<float>& input, size_t channels,
-    double factor, SRCpp::Type type)
-{
-    auto pusher = SRCpp::PushConverter(type, channels, factor);
-    auto data = pusher.convert(input);
-    if (!data.has_value()) {
-        throw std::runtime_error(data.error());
-    }
-    auto flush = pusher.flush();
-    if (!flush.has_value()) {
-        throw std::runtime_error(flush.error());
-    }
-    data->insert(
-        data->end(), flush->begin(), flush->end()); // append flush to data
-    return *data;
-}
-
 auto ConvertWithPush(std::vector<float> input, size_t channels, double factor,
     SRCpp::Type type, size_t input_frames)
 {
@@ -48,6 +31,38 @@ auto ConvertWithPush(std::vector<float> input, size_t channels, double factor,
     return output;
 }
 
+auto ConvertWithPushReuseMemory(std::vector<float> input, size_t channels,
+    double factor, SRCpp::Type type, size_t input_frames)
+{
+    auto framesLeft = input.size() / channels;
+    auto output = std::vector<float>(framesLeft * channels * factor * 2);
+    auto pusher = SRCpp::PushConverter(type, channels, factor);
+    auto outputSpan = std::span { output };
+    auto samplesProduced = 0;
+    while (framesLeft) {
+        auto framesForThis = std::min(input_frames, input.size() / channels);
+        auto data = pusher.convert(
+            { input.begin(), input.begin() + framesForThis * channels },
+            outputSpan);
+        if (!data.has_value()) {
+            throw std::runtime_error(data.error());
+        }
+        input.erase(input.begin(), input.begin() + framesForThis * channels);
+        auto size = data->size();
+        samplesProduced += size;
+        framesLeft -= framesForThis;
+        outputSpan = outputSpan.subspan(size);
+    }
+    auto flush = pusher.convert({}, outputSpan);
+    if (!flush.has_value()) {
+        throw std::runtime_error(flush.error());
+    }
+    auto size = flush->size();
+    samplesProduced += size;
+    output.resize(samplesProduced);
+    return output;
+}
+
 TEST_CASE("PushConverter", "[SRCpp]")
 {
     for (auto frames : { 16, 256, 257, 500 }) {
@@ -65,6 +80,12 @@ TEST_CASE("PushConverter", "[SRCpp]")
                         = CreatePushReference(input, channels, factor, type);
                     {
                         auto output = ConvertWithPush(
+                            input, channels, factor, type, frames);
+
+                        REQUIRE(output == reference);
+                    }
+                    {
+                        auto output = ConvertWithPushReuseMemory(
                             input, channels, factor, type, frames);
 
                         REQUIRE(output == reference);

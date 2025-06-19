@@ -1,7 +1,5 @@
 #include "SRCppTestUtils.hpp"
 #include <SRCpp/SRCpp.hpp>
-#include <numbers>
-#include <ranges>
 
 // this effectively is what SRCpp::Convert does
 auto CreateOneShotReference(const std::vector<float>& input, size_t channels,

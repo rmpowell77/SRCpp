@@ -1,3 +1,5 @@
+// NOLINTBEGIN(misc-include-cleaner)
 #include <SRCpp/SRCpp.hpp>
+// NOLINTEND(misc-include-cleaner)
 
-int main() { }
+auto main() -> int { }
