@@ -42,7 +42,7 @@ SOFTWARE.
 
 namespace SRCpp {
 
-enum struct Type : int {
+enum struct Type : uint8_t {
     Sinc_BestQuality = SRC_SINC_BEST_QUALITY,
     Sinc_MediumQuality = SRC_SINC_MEDIUM_QUALITY,
     Sinc_Fastest = SRC_SINC_FASTEST,
@@ -70,9 +70,9 @@ public:
     PushConverter(SRCpp::Type type, int channels, double factor);
     ~PushConverter();
     PushConverter(const PushConverter& other);
-    PushConverter& operator=(const PushConverter& other);
+    auto operator=(const PushConverter& other) -> PushConverter&;
     PushConverter(PushConverter&& other) noexcept;
-    PushConverter& operator=(PushConverter&& other) noexcept;
+    auto operator=(PushConverter&& other) noexcept -> PushConverter&;
 
 #if SRCPP_USE_CPP23
     auto convert_expected(std::span<const float> input, std::span<float> output)
@@ -124,9 +124,9 @@ public:
 
     // Copying is dangerous, because then the callback is shared.
     PullConverter(const PullConverter&) = delete;
-    PullConverter& operator=(const PullConverter&) = delete;
+    auto operator=(const PullConverter&) -> PullConverter& = delete;
     PullConverter(PullConverter&& other) noexcept;
-    PullConverter& operator=(PullConverter&& other) noexcept;
+    auto operator=(PullConverter&& other) noexcept -> PullConverter&;
 
 #if SRCPP_USE_CPP23
     auto convert_expected(std::span<float> output)
@@ -239,7 +239,8 @@ inline PushConverter::PushConverter(const PushConverter& other)
     }
 }
 
-inline PushConverter& PushConverter::operator=(const PushConverter& other)
+inline auto PushConverter::operator=(const PushConverter& other)
+    -> PushConverter&
 {
     if (this != &other) {
         src_delete(state_);
@@ -272,7 +273,8 @@ inline PushConverter::PushConverter(PushConverter&& other) noexcept
     other.state_ = nullptr;
 }
 
-inline PushConverter& PushConverter::operator=(PushConverter&& other) noexcept
+inline auto PushConverter::operator=(PushConverter&& other) noexcept
+    -> PushConverter&
 {
     if (this != &other) {
         src_delete(state_);
@@ -464,7 +466,8 @@ inline PullConverter::PullConverter(PullConverter&& other) noexcept
     other.state_ = nullptr;
 }
 
-inline PullConverter& PullConverter::operator=(PullConverter&& other) noexcept
+inline auto PullConverter::operator=(PullConverter&& other) noexcept
+    -> PullConverter&
 {
     if (this != &other) {
         std::swap(callback_, other.callback_);

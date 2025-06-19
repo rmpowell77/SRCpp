@@ -8,8 +8,12 @@ endif()
 # C++ standard
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-if(NOT CMAKE_CXX_STANDARD OR CMAKE_CXX_STANDARD LESS 23)
+if(NOT CMAKE_CXX_STANDARD)
 	set(CMAKE_CXX_STANDARD 23)
+endif()
+
+if (CMAKE_CXX_STANDARD LESS 20)
+    message(FATAL_ERROR "SRCpp requires C++20 or higher.")
 endif()
 
 # set(CMAKE_CXX_CLANG_TIDY "clang-tidy;-format-style=file")
