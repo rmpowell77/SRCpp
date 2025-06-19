@@ -388,6 +388,11 @@ inline auto PushConverter::convert(
     if (auto result = src_process(state_, &src_data); result != 0) {
         return { std::nullopt, src_strerror(result) };
     }
+    if (end) {
+        if (auto result = src_reset(state_); result != 0) {
+            return { std::nullopt, src_strerror(result) };
+        }
+    }
     input_frames_consumed_ += src_data.input_frames_used;
     output_frames_produced_ += src_data.output_frames_gen;
 
