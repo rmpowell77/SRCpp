@@ -3,7 +3,9 @@ Modern C++ wrapper for libsamplerate
 
 ## Features
 
-SRCpp provides a modern C++ interface for libsamplerate.  It requires C++23, and offers three distinct ways to perform sample rate conversion.
+SRCpp provides a modern C++ interface for libsamplerate.  It requires minimum of C++20, and offers three distinct ways to perform sample rate conversion.
+
+The library avoids using exceptions and instead leans towards using "error-like" results, specifically `std::pair` of an optional result and error string, or `std::expected` version if available.  This makes it the caller and only the caller's responsibility to deal with the error as they are encountered.
 
 ### 1. Convert
 The `Convert` method allows you to process an entire audio buffer in one go. This is ideal for scenarios where you have all the audio data available upfront and need to perform a straightforward conversion.
@@ -19,11 +21,17 @@ enum struct Type : int {
     Linear = SRC_LINEAR
 };
 
-auto Convert(std::span<const float> input, std::span<float> output,
+auto Convert_expected(std::span<const float> input, std::span<float> output,
     SRCpp::Type type, int channels, double factor)
     -> std::expected<std::span<float>, std::string>;
-auto Convert(std::span<const float> input, SRCpp::Type type, int channels,
+auto Convert_expected(std::span<const float> input, SRCpp::Type type, int channels,
     double factor) -> std::expected<std::vector<float>, std::string>;
+
+auto Convert(std::span<const float> input, std::span<float> output,
+    SRCpp::Type type, int channels, double factor)
+    -> std::pair<optional<std::span<float>>, std::string>;
+auto Convert(std::span<const float> input, SRCpp::Type type, int channels,
+    double factor) -> std::pair<std::optional<std::vector<float>>, std::string>;
 
 } // namespace SRCpp
 ```
@@ -42,14 +50,14 @@ int main() {
     auto channels = 1;
 
     // Perform sample rate conversion with a ratio of 1.5
-    auto output = SRCpp::Convert(
+    auto [output, error] = SRCpp::Convert(
         input, SRCpp::Type::Sinc_MediumQuality, channels, ratio);
 
     // Output the converted data
     if (output) {
         std::println("Converted audio data: {}", *output);
     } else {
-        std::println("Error: {}", output.error());
+        std::println("Error: {}", error);
     }
 }
 ```
@@ -68,12 +76,17 @@ public:
 
     auto convert(std::span<const float> input, std::span<float> output)
         -> std::expected<std::span<float>, std::string>;
-
     auto convert(std::span<const float> input)
         -> std::expected<std::vector<float>, std::string>;
-
     // flush will push any remaining data through
     auto flush() -> std::expected<std::vector<float>, std::string>;
+
+    auto convert(std::span<const float> input, std::span<float> output)
+        -> std::pair<std::optional<std::span<float>>, std::string>;
+    auto convert(std::span<const float> input)
+        -> std::pair<std::optional<std::vector<float>>, std::string>;
+    // flush will push any remaining data through
+    auto flush() -> std::pair<std::optional<std::vector<float>>, std::string>;
 };
 
 } // namespace SRCpp
@@ -97,7 +110,7 @@ int main() {
 
     auto converter = SRCpp::PushConverter(
         SRCpp::Type::Sinc_MediumQuality, channels, ratio);
-    auto output = converter.convert(input).and_then(
+    auto output = converter.convert_expected(input).and_then(
         [&converter](
             auto data) -> std::expected<std::vector<float>, std::string> {
             auto flush = converter.flush();
@@ -131,6 +144,8 @@ public:
 
     auto convert(std::span<float> output)
         -> std::expected<std::span<float>, std::string>;
+    auto convert(std::span<float> output)
+        -> std::pair<std::optional<std::span<float>>, std::string>;
 };
 
 } // namespace SRCpp

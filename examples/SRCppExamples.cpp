@@ -27,7 +27,7 @@ int exampleConverter()
     auto channels = 1;
 
     // Perform sample rate conversion with a ratio of 1.5
-    auto output = SRCpp::Convert(
+    auto [output, error] = SRCpp::Convert(
         input, SRCpp::Type::Sinc_MediumQuality, channels, ratio);
 
     // Output the converted data
@@ -38,11 +38,12 @@ int exampleConverter()
         }
         std::println("]");
     } else {
-        std::println("Error: {}", output.error());
+        std::println("Error: {}", error);
     }
     return 0;
 }
 
+#if SRCPP_USE_CPP23
 int examplePushConverter()
 {
     // Input audio data (e.g., a sine wave)
@@ -53,10 +54,10 @@ int examplePushConverter()
 
     auto converter = SRCpp::PushConverter(
         SRCpp::Type::Sinc_MediumQuality, channels, ratio);
-    auto output = converter.convert(input).and_then(
+    auto output = converter.convert_expected(input).and_then(
         [&converter](
             auto data) -> std::expected<std::vector<float>, std::string> {
-            auto flush = converter.flush();
+            auto flush = converter.flush_expected();
             if (flush.has_value()) {
                 data.insert(data.end(), flush->begin(), flush->end());
             }
@@ -74,6 +75,7 @@ int examplePushConverter()
     }
     return 0;
 }
+#endif // SRCPP_USE_CPP23
 
 int examplePullConverter()
 {
@@ -98,7 +100,7 @@ int examplePullConverter()
 
     auto buffer = std::vector<float>(input.size() * ratio);
 
-    auto output = puller.convert(buffer);
+    auto [output, error] = puller.convert(buffer);
     if (output.has_value()) {
         std::print("Pull Converted audio data: [");
         for (const auto& sample : *output) {
@@ -106,7 +108,7 @@ int examplePullConverter()
         }
         std::println("]");
     } else {
-        std::println("Error: {}", output.error());
+        std::println("Error: {}", error);
     }
     return 0;
 }
@@ -121,11 +123,10 @@ int try_simple()
     }
     std::println("");
     {
-        auto output
+        auto [output, error]
             = SRCpp::Convert(data, SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
 
         if (output.has_value()) {
-
             std::println("data");
             for (auto i : *output) {
                 std::print("{} ", i);
@@ -149,9 +150,8 @@ int try_normal()
         auto src
             = SRCpp::PushConverter(SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
         {
-            auto output = src.convert(data);
+            auto [output, error] = src.convert(data);
             if (output.has_value()) {
-
                 std::println("output({})", output->size());
                 for (auto i : *output) {
                     std::print("{} ", i);
@@ -160,9 +160,8 @@ int try_normal()
             }
         }
         {
-            auto output = src.convert({});
+            auto [output, error] = src.convert({});
             if (output.has_value()) {
-
                 std::println("output({})", output->size());
                 for (auto i : *output) {
                     std::print("{} ", i);
@@ -178,7 +177,9 @@ int try_normal()
 int main()
 {
     exampleConverter();
+#if SRCPP_USE_CPP23
     examplePushConverter();
+#endif // SRCPP_USE_CPP23
     examplePullConverter();
     try_simple();
     try_normal();

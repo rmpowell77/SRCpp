@@ -4,35 +4,67 @@
 #include <numbers>
 #include <ranges>
 
-auto ConvertWithPush(std::vector<float> input, size_t channels, double factor,
-    SRCpp::Type type, size_t input_frames)
+auto ConvertWithPush([[maybe_unused]] bool cpp_20, std::vector<float> input,
+    size_t channels, double factor, SRCpp::Type type, size_t input_frames)
 {
     auto output = std::vector<float> {};
     auto pusher = SRCpp::PushConverter(type, channels, factor);
     auto framesLeft = input.size() / channels;
     while (framesLeft) {
         auto framesForThis = std::min(input_frames, input.size() / channels);
-        auto data = pusher.convert(
-            { input.begin(), input.begin() + framesForThis * channels });
-        if (!data.has_value()) {
-            throw std::runtime_error(data.error());
-        }
+        auto data = [&] {
+#if SRCPP_USE_CPP23
+            if (cpp_20) {
+#endif // SRCPP_USE_CPP23
+                auto [data, error] = pusher.convert({ input.begin(),
+                    input.begin() + framesForThis * channels });
+                if (!data.has_value()) {
+                    throw error;
+                }
+                return *data;
+#if SRCPP_USE_CPP23
+            } else {
+                auto data = pusher.convert_expected({ input.begin(),
+                    input.begin() + framesForThis * channels });
+                if (!data.has_value()) {
+                    throw std::runtime_error(data.error());
+                }
+                return data.value();
+            }
+#endif //  SRCPP_USE_CPP23
+        }();
         input.erase(input.begin(), input.begin() + framesForThis * channels);
         framesLeft -= framesForThis;
         output.insert(
-            output.end(), data->begin(), data->end()); // append flush to data
+            output.end(), data.begin(), data.end()); // append flush to data
     }
-    auto flush = pusher.flush();
-    if (!flush.has_value()) {
-        throw std::runtime_error(flush.error());
-    }
+    auto flush = [&] {
+#if SRCPP_USE_CPP23
+        if (cpp_20) {
+#endif // SRCPP_USE_CPP23
+            auto [data, error] = pusher.flush();
+            if (!data.has_value()) {
+                throw error;
+            }
+            return *data;
+#if SRCPP_USE_CPP23
+        } else {
+            auto data = pusher.flush_expected();
+            if (!data.has_value()) {
+                throw std::runtime_error(data.error());
+            }
+            return data.value();
+        }
+#endif //  SRCPP_USE_CPP23
+    }();
     output.insert(
-        output.end(), flush->begin(), flush->end()); // append flush to data
+        output.end(), flush.begin(), flush.end()); // append flush to data
     return output;
 }
 
-auto ConvertWithPushReuseMemory(std::vector<float> input, size_t channels,
-    double factor, SRCpp::Type type, size_t input_frames)
+auto ConvertWithPushReuseMemory([[maybe_unused]] bool cpp_20,
+    std::vector<float> input, size_t channels, double factor, SRCpp::Type type,
+    size_t input_frames)
 {
     auto framesLeft = input.size() / channels;
     auto output = std::vector<float>(framesLeft * channels * factor * 2);
@@ -41,23 +73,55 @@ auto ConvertWithPushReuseMemory(std::vector<float> input, size_t channels,
     auto samplesProduced = 0;
     while (framesLeft) {
         auto framesForThis = std::min(input_frames, input.size() / channels);
-        auto data = pusher.convert(
-            { input.begin(), input.begin() + framesForThis * channels },
-            outputSpan);
-        if (!data.has_value()) {
-            throw std::runtime_error(data.error());
-        }
+        auto data = [&] {
+#if SRCPP_USE_CPP23
+            if (cpp_20) {
+#endif // SRCPP_USE_CPP23
+                auto [data, error] = pusher.convert(
+                    { input.begin(), input.begin() + framesForThis * channels },
+                    outputSpan);
+                if (!data.has_value()) {
+                    throw error;
+                }
+                return *data;
+#if SRCPP_USE_CPP23
+            } else {
+                auto data = pusher.convert_expected(
+                    { input.begin(), input.begin() + framesForThis * channels },
+                    outputSpan);
+                if (!data.has_value()) {
+                    throw std::runtime_error(data.error());
+                }
+                return data.value();
+            }
+#endif // SRCPP_USE_CPP23
+        }();
         input.erase(input.begin(), input.begin() + framesForThis * channels);
-        auto size = data->size();
+        auto size = data.size();
         samplesProduced += size;
         framesLeft -= framesForThis;
         outputSpan = outputSpan.subspan(size);
     }
-    auto flush = pusher.convert({}, outputSpan);
-    if (!flush.has_value()) {
-        throw std::runtime_error(flush.error());
-    }
-    auto size = flush->size();
+    auto flush = [&] {
+#if SRCPP_USE_CPP23
+        if (cpp_20) {
+#endif // SRCPP_USE_CPP23
+            auto [data, error] = pusher.convert({}, outputSpan);
+            if (!data.has_value()) {
+                throw error;
+            }
+            return *data;
+#if SRCPP_USE_CPP23
+        } else {
+            auto data = pusher.convert_expected({}, outputSpan);
+            if (!data.has_value()) {
+                throw std::runtime_error(data.error());
+            }
+            return data.value();
+        }
+#endif // SRCPP_USE_CPP23
+    }();
+    auto size = flush.size();
     samplesProduced += size;
     output.resize(samplesProduced);
     return output;
@@ -65,41 +129,43 @@ auto ConvertWithPushReuseMemory(std::vector<float> input, size_t channels,
 
 TEST_CASE("PushConverter", "[SRCpp]")
 {
-    for (auto frames : { 16, 256, 257, 500 }) {
-        for (auto type : { SRCpp::Type::Sinc_BestQuality,
-                 SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
-                 SRCpp::Type::ZeroOrderHold, SRCpp::Type::Linear }) {
-            for (auto factor : { 0.1, 0.5, 0.9, 1.0, 1.5, 2.0, 4.5 }) {
-                for (auto hz : { std::vector<float> { 3000.0f },
-                         std::vector<float> { 3000.0f, 40.0f },
-                         std::vector<float> { 3000.0f, 40.0f, 1004.0f } }) {
-                    auto channels = hz.size();
-                    auto input = makeSin(hz, 48000.0, frames);
+    for (auto cpp_20 : { false, true }) {
+        for (auto frames : { 16, 256, 257, 500 }) {
+            for (auto type : { SRCpp::Type::Sinc_BestQuality,
+                     SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
+                     SRCpp::Type::ZeroOrderHold, SRCpp::Type::Linear }) {
+                for (auto factor : { 0.1, 0.5, 0.9, 1.0, 1.5, 2.0, 4.5 }) {
+                    for (auto hz : { std::vector<float> { 3000.0f },
+                             std::vector<float> { 3000.0f, 40.0f },
+                             std::vector<float> { 3000.0f, 40.0f, 1004.0f } }) {
+                        auto channels = hz.size();
+                        auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference
-                        = CreatePushReference(input, channels, factor, type);
-                    {
-                        auto output = ConvertWithPush(
-                            input, channels, factor, type, frames);
+                        auto reference = CreatePushReference(
+                            input, channels, factor, type);
+                        {
+                            auto output = ConvertWithPush(
+                                cpp_20, input, channels, factor, type, frames);
 
-                        REQUIRE(output == reference);
-                    }
-                    {
-                        auto output = ConvertWithPushReuseMemory(
-                            input, channels, factor, type, frames);
-
-                        REQUIRE(output == reference);
-                    }
-                    for (auto input_size : { 4, 8, 16, 32, 64 }) {
-                        auto output = ConvertWithPush(
-                            input, channels, factor, type, input_size);
-
-                        if (type == SRCpp::Type::ZeroOrderHold) {
-                            auto mangledReference = reference;
-                            mangledReference.resize(output.size());
-                            REQUIRE(output == mangledReference);
-                        } else {
                             REQUIRE(output == reference);
+                        }
+                        {
+                            auto output = ConvertWithPushReuseMemory(
+                                cpp_20, input, channels, factor, type, frames);
+
+                            REQUIRE(output == reference);
+                        }
+                        for (auto input_size : { 4, 8, 16, 32, 64 }) {
+                            auto output = ConvertWithPush(cpp_20, input,
+                                channels, factor, type, input_size);
+
+                            if (type == SRCpp::Type::ZeroOrderHold) {
+                                auto mangledReference = reference;
+                                mangledReference.resize(output.size());
+                                REQUIRE(output == mangledReference);
+                            } else {
+                                REQUIRE(output == reference);
+                            }
                         }
                     }
                 }
@@ -129,10 +195,10 @@ TEST_CASE("Test copying a convert allows both to create the right results.",
     auto framesLeft = input.size() / channels;
     {
         auto framesForThis = firstPush;
-        auto data = pusher.convert(
+        auto [data, error] = pusher.convert(
             { input.begin(), input.begin() + framesForThis * channels });
         if (!data.has_value()) {
-            throw std::runtime_error(data.error());
+            throw std::runtime_error(error);
         }
         input.erase(input.begin(), input.begin() + framesForThis * channels);
         framesLeft -= framesForThis;
@@ -146,14 +212,14 @@ TEST_CASE("Test copying a convert allows both to create the right results.",
     // push the rest
     {
         auto framesForThis = framesLeft;
-        auto data = pusher.convert(
+        auto [data, error] = pusher.convert(
             { input.begin(), input.begin() + framesForThis * channels });
         if (!data.has_value()) {
-            throw std::runtime_error(data.error());
+            throw std::runtime_error(error);
         }
         output1.insert(
             output1.end(), data->begin(), data->end()); // append flush to data
-        data = pusher2.convert(
+        std::tie(data, error) = pusher2.convert(
             { input.begin(), input.begin() + framesForThis * channels });
         input.erase(input.begin(), input.begin() + framesForThis * channels);
         output2.insert(
@@ -161,17 +227,17 @@ TEST_CASE("Test copying a convert allows both to create the right results.",
     }
 
     {
-        auto flush = pusher.flush();
+        auto [flush, error] = pusher.flush();
         if (!flush.has_value()) {
-            throw std::runtime_error(flush.error());
+            throw std::runtime_error(error);
         }
         output1.insert(output1.end(), flush->begin(),
             flush->end()); // append flush to data
     }
     {
-        auto flush = pusher2.flush();
+        auto [flush, error] = pusher2.flush();
         if (!flush.has_value()) {
-            throw std::runtime_error(flush.error());
+            throw std::runtime_error(error);
         }
         output2.insert(output2.end(), flush->begin(),
             flush->end()); // append flush to data
@@ -200,10 +266,10 @@ TEST_CASE("Test moving a pull converters work", "[SRCpp]")
     auto framesLeft = input.size() / channels;
     {
         auto framesForThis = firstPush;
-        auto data = pusher.convert(
+        auto [data, error] = pusher.convert(
             { input.begin(), input.begin() + framesForThis * channels });
         if (!data.has_value()) {
-            throw std::runtime_error(data.error());
+            throw std::runtime_error(error);
         }
         input.erase(input.begin(), input.begin() + framesForThis * channels);
         framesLeft -= framesForThis;
@@ -217,15 +283,15 @@ TEST_CASE("Test moving a pull converters work", "[SRCpp]")
     // push the rest
     {
         auto framesForThis = framesLeft;
-        auto data = pusher2.convert(
+        auto [data, error] = pusher2.convert(
             { input.begin(), input.begin() + framesForThis * channels });
         output1.insert(
             output1.end(), data->begin(), data->end()); // append flush to data
     }
     {
-        auto flush = pusher2.flush();
+        auto [flush, error] = pusher2.flush();
         if (!flush.has_value()) {
-            throw std::runtime_error(flush.error());
+            throw std::runtime_error(error);
         }
         output1.insert(output1.end(), flush->begin(),
             flush->end()); // append flush to data

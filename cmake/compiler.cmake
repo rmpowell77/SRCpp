@@ -14,11 +14,11 @@ endif()
 
 # set(CMAKE_CXX_CLANG_TIDY "clang-tidy;-format-style=file")
 
-macro(SetupCompilerForTarget arg)
+macro(SetupCompilerForTarget arg cpp_version)
   if(NOT MSVC)
   target_compile_options(${arg} PRIVATE -Wall -Wextra)
   endif()
-  set_target_properties(${arg} PROPERTIES CXX_STANDARD 23)
+  set_target_properties(${arg} PROPERTIES CXX_STANDARD ${cpp_version})
 endmacro()
 
 option(ENABLE_ASAN "Enable AddressSanitizer in Debug" ON)

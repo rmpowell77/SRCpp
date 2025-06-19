@@ -17,11 +17,22 @@ TEST_CASE("Resample", "[SRCpp]")
                     auto channels = hz.size();
                     auto input = makeSin(hz, 48000.0, frames);
 
-                    auto reference
-                        = CreateOneShotReference(input, channels, factor, type);
-                    auto output = SRCpp::Convert(input, type, channels, factor);
-
-                    REQUIRE(output == reference);
+#if SRCPP_USE_CPP23
+                    {
+                        auto reference = CreateOneShotReference(
+                            input, channels, factor, type);
+                        auto output = SRCpp::Convert_expected(
+                            input, type, channels, factor);
+                        REQUIRE(output == reference);
+                    }
+#endif // SRCPP_USE_CPP23
+                    {
+                        auto reference = CreateOneShotReference(
+                            input, channels, factor, type);
+                        auto [output, error]
+                            = SRCpp::Convert(input, type, channels, factor);
+                        REQUIRE(*output == reference);
+                    }
                 }
             }
         }
