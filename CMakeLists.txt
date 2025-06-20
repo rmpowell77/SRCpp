@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.23)
 
-project(SRCpp VERSION 0.1)
+project(SRCpp VERSION 0.0.1 LANGUAGES CXX)
 
 #============================================================================
 # Settable options
@@ -8,21 +8,53 @@ project(SRCpp VERSION 0.1)
 option(SRCPP_WITH_TESTS "Build tests." OFF)
 option(SRCPP_WITH_EXAMPLE "Build example." OFF)
 
-include(GNUInstallDirs)
+# Define header-only interface library
+add_library(SRCpp INTERFACE)
 
 include(${PROJECT_SOURCE_DIR}/cmake/compiler.cmake)
 include(${PROJECT_SOURCE_DIR}/cmake/dependencies.cmake)
 
-add_library(
-  SRCpp
-  INTERFACE
-  include/SRCpp/SRCpp.hpp
+# Require C++20
+target_compile_features(SRCpp INTERFACE cxx_std_20)
+
+# Specify include directories
+target_include_directories(SRCpp INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
-target_include_directories(
-  SRCpp
-  INTERFACE
-  include
+# Installation support
+include(GNUInstallDirs)
+
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+install(TARGETS SRCpp
+    EXPORT SRCppTargets
+)
+
+install(EXPORT SRCppTargets
+    NAMESPACE SRCpp::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SRCpp
+)
+
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    cmake/SRCppConfig.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/SRCppConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SRCpp
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/SRCppConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/SRCppConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/SRCppConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SRCpp
 )
 
 #============================================================================

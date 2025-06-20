@@ -11,7 +11,7 @@ TEST_CASE("Resample", "[SRCpp]")
                  SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
                  SRCpp::Type::ZeroOrderHold, SRCpp::Type::Linear }) {
             for (auto factor : { 0.1, 0.5, 0.9, 1.0, 1.5, 2.0, 4.5 }) {
-                for (auto hz : { std::vector<float> { 3000.0f },
+                for (auto&& hz : { std::vector<float> { 3000.0f },
                          std::vector<float> { 3000.0f, 40.0f },
                          std::vector<float> { 3000.0f, 40.0f, 1004.0f } }) {
                     auto channels = hz.size();
