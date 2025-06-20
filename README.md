@@ -7,6 +7,8 @@ SRCpp provides a modern C++ interface for libsamplerate.  It requires minimum of
 
 The library avoids using exceptions and instead leans towards using "error-like" results, specifically `std::pair` of an optional result and error string, or `std::expected` version if available.  This makes it the caller and only the caller's responsibility to deal with the error as they are encountered.
 
+SRCpp operates on arrays of floats and assumes the audio data is always interleaved. In this context, a sample refers to an individual PCM value for a single channel, while a frame denotes a set of samples—one per channel—that are time-aligned.
+
 ### 1. Convert
 The `Convert` method allows you to process an entire audio buffer in one go. This is ideal for scenarios where you have all the audio data available upfront and need to perform a straightforward conversion.
 
