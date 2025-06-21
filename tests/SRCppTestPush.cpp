@@ -299,3 +299,55 @@ TEST_CASE("Test moving a pull converters work", "[SRCpp]")
 
     REQUIRE(output1 == reference);
 }
+
+TEST_CASE("Push more after flush.", "[SRCpp]")
+{
+    auto frames = 64;
+    auto firstPush = 10;
+    auto type = SRCpp::Type::Sinc_BestQuality;
+    auto factor = 0.9;
+    auto hz = std::vector<float> { 3000.0f, 40.0f };
+    auto channels = hz.size();
+    auto input1 = makeSin(hz, 48000.0, frames);
+    auto input2 = input1;
+
+    auto reference = CreatePushReference(input1, channels, factor, type);
+
+    auto output1 = std::vector<float> {};
+    auto output2 = std::vector<float> {};
+    auto pusher = SRCpp::PushConverter(type, channels, factor);
+
+    {
+        auto framesForThis = firstPush;
+        auto [data, error] = pusher.convert(
+            { input1.begin(), input1.begin() + framesForThis * channels });
+        if (!data.has_value()) {
+            throw std::runtime_error(error);
+        }
+        std::tie(data, error) = pusher.flush();
+        if (!data.has_value()) {
+            throw std::runtime_error(error);
+        }
+    }
+
+    // now convert the other input, should match reference
+    {
+        auto [data, error] = pusher.convert(input2);
+        if (!data.has_value()) {
+            throw std::runtime_error(error);
+        }
+        output2.insert(
+            output2.end(), data->begin(), data->end()); // append flush to data
+    }
+
+    {
+        auto [flush, error] = pusher.flush();
+        if (!flush.has_value()) {
+            throw std::runtime_error(error);
+        }
+        output2.insert(output2.end(), flush->begin(),
+            flush->end()); // append flush to data
+    }
+
+    REQUIRE(output2 == reference);
+}
