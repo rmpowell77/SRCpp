@@ -31,7 +31,7 @@
             "inherits": "base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "SRCPP_WITH_TESTS": false
+                "SRCPP_WITH_TESTS": true
             }
         }
     ],

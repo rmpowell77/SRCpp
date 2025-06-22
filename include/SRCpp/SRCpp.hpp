@@ -26,6 +26,7 @@ SOFTWARE.
 #include <cmath>
 #include <format>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <samplerate.h>
 #include <span>
@@ -122,9 +123,6 @@ public:
         callback_t callback, SRCpp::Type type, int channels, double factor);
     ~PullConverter();
 
-    // Copying is dangerous, because then the callback is shared.
-    PullConverter(const PullConverter&) = delete;
-    auto operator=(const PullConverter&) -> PullConverter& = delete;
     PullConverter(PullConverter&& other) noexcept;
     auto operator=(PullConverter&& other) noexcept -> PullConverter&;
 
@@ -137,12 +135,15 @@ public:
         -> std::pair<std::optional<std::span<float>>, std::string>;
 
 private:
-    auto handle_calback(float** data) -> long;
-    callback_t callback_;
+    struct CallbackHandle {
+        callback_t callback_;
+        float dummy_ {};
+        int channels_ { 0 };
+        auto handle_callback(float** data) -> long;
+    };
+    std::unique_ptr<CallbackHandle> callback_;
     SRC_STATE* state_ { nullptr };
-    int channels_ { 0 };
     double factor_ { 1.0 };
-    float dummy_ {};
 };
 
 // Implementation details
@@ -443,17 +444,16 @@ inline auto PushConverter::convertWithFixFor208(
 
 inline PullConverter::PullConverter(
     callback_t callback, SRCpp::Type type, int channels, double factor)
-    : callback_(callback)
-    , channels_ { channels }
+    : callback_ { std::make_unique<CallbackHandle>(callback, 0, channels) }
     , factor_ { factor }
 {
     auto error = 0;
     state_ = src_callback_new(
         [](void* cb_data, float** data) -> long {
-            auto* self = static_cast<PullConverter*>(cb_data);
-            return self->handle_calback(data);
+            auto* self = static_cast<CallbackHandle*>(cb_data);
+            return self->handle_callback(data);
         },
-        static_cast<int>(type), channels, &error, this);
+        static_cast<int>(type), channels, &error, callback_.get());
     if (error != 0) {
         throw std::runtime_error(src_strerror(error));
     }
@@ -464,9 +464,7 @@ inline PullConverter::~PullConverter() { src_delete(state_); }
 inline PullConverter::PullConverter(PullConverter&& other) noexcept
     : callback_(std::move(other.callback_))
     , state_(other.state_)
-    , channels_(other.channels_)
     , factor_(other.factor_)
-    , dummy_(other.dummy_)
 {
     other.state_ = nullptr;
 }
@@ -477,9 +475,7 @@ inline auto PullConverter::operator=(PullConverter&& other) noexcept
     if (this != &other) {
         std::swap(callback_, other.callback_);
         std::swap(state_, other.state_);
-        std::swap(channels_, other.channels_);
         std::swap(factor_, other.factor_);
-        std::swap(dummy_, other.dummy_);
     }
     return *this;
 }
@@ -500,14 +496,14 @@ inline auto PullConverter::convert(std::span<float> output)
     -> std::pair<std::optional<std::span<float>>, std::string>
 {
     auto size = src_callback_read(
-        state_, factor_, output.size() / channels_, output.data());
+        state_, factor_, output.size() / callback_->channels_, output.data());
     if (size < 0) {
         return { std::nullopt, src_strerror(src_error(state_)) };
     }
-    return { output.subspan(0, size * channels_), {} };
+    return { output.subspan(0, size * callback_->channels_), {} };
 }
 
-inline auto PullConverter::handle_calback(float** data) -> long
+inline auto PullConverter::CallbackHandle::handle_callback(float** data) -> long
 {
     if (data == nullptr) {
         return 0;
