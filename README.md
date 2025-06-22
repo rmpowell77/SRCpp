@@ -9,36 +9,12 @@ The library avoids using exceptions and instead leans towards using "error-like"
 
 SRCpp operates on arrays of floats and assumes the audio data is always interleaved. In this context, a sample refers to an individual PCM value for a single channel, while a frame denotes a set of samples—one per channel—that are time-aligned.
 
+Please consult the [API](docs/API.md) for specific API details.
+
 ### 1. Convert
 The `Convert` method allows you to process an entire audio buffer in one go. This is ideal for scenarios where you have all the audio data available upfront and need to perform a straightforward conversion.
 
-```cpp
-namespace SRCpp {
-
-enum struct Type : int {
-    Sinc_BestQuality = SRC_SINC_BEST_QUALITY,
-    Sinc_MediumQuality = SRC_SINC_MEDIUM_QUALITY,
-    Sinc_Fastest = SRC_SINC_FASTEST,
-    ZeroOrderHold = SRC_ZERO_ORDER_HOLD,
-    Linear = SRC_LINEAR
-};
-
-auto Convert_expected(std::span<const float> input, std::span<float> output,
-    SRCpp::Type type, int channels, double factor)
-    -> std::expected<std::span<float>, std::string>;
-auto Convert_expected(std::span<const float> input, SRCpp::Type type, int channels,
-    double factor) -> std::expected<std::vector<float>, std::string>;
-
-auto Convert(std::span<const float> input, std::span<float> output,
-    SRCpp::Type type, int channels, double factor)
-    -> std::pair<optional<std::span<float>>, std::string>;
-auto Convert(std::span<const float> input, SRCpp::Type type, int channels,
-    double factor) -> std::pair<std::optional<std::vector<float>>, std::string>;
-
-} // namespace SRCpp
-```
-
-Here is an example using SRCpp::Convert.
+Here is an example using `SRCpp::Convert`:
 
 ```cpp
 #include "SRCpp.h"
@@ -69,32 +45,7 @@ The `PushConvert` enables you to feed audio data incrementally. This is useful f
 
 There are two flavors: one where memory for output is supplied in the form of a `std::span`, and one where a `std::vector` is created and returned to hold on to the result.  It is incumbent on the caller to ensure they supply an appropriately sized output `std::span`.
 
-```cpp
-namespace SRCpp {
-
-class PushConverter {
-public:
-    PushConverter(SRCpp::Type type, int channels, double factor);
-
-    auto convert(std::span<const float> input, std::span<float> output)
-        -> std::expected<std::span<float>, std::string>;
-    auto convert(std::span<const float> input)
-        -> std::expected<std::vector<float>, std::string>;
-    // flush will push any remaining data through
-    auto flush() -> std::expected<std::vector<float>, std::string>;
-
-    auto convert(std::span<const float> input, std::span<float> output)
-        -> std::pair<std::optional<std::span<float>>, std::string>;
-    auto convert(std::span<const float> input)
-        -> std::pair<std::optional<std::vector<float>>, std::string>;
-    // flush will push any remaining data through
-    auto flush() -> std::pair<std::optional<std::vector<float>>, std::string>;
-};
-
-} // namespace SRCpp
-```
-
-Here is an example using SRCpp::PushConverter.
+Here is an example using `SRCpp::PushConverter`.
 
 ```cpp
 // Example: Using SRCpp::Push
@@ -134,26 +85,10 @@ int main() {
 ### 3. Pull
 The `Pull` method allows you to request converted audio data on demand. This is particularly suited for cases where the consumer of the audio data dictates the pace of processing.  Returning an empty `span` indicates that the all the data has been consumed.
 
+Care should be taken with callback lambda supplied.  Returning a `std::span` of size 0 indicates an end of stream condition, which will cause the SRC to be flushed and, once exhausted, will no longer produce output.  Once the lambda returns size 0, it is expect that it will continue to do so on every subsequent call or else the result is undefined.
 
-```cpp
-namespace SRCpp {
 
-class PullConverter {
-public:
-    using callback_t = std::function<std::span<float>()>;
-    PullConverter(
-        callback_t callback, SRCpp::Type type, int channels, double factor);
-
-    auto convert(std::span<float> output)
-        -> std::expected<std::span<float>, std::string>;
-    auto convert(std::span<float> output)
-        -> std::pair<std::optional<std::span<float>>, std::string>;
-};
-
-} // namespace SRCpp
-```
-
-Here is an example using SRCpp::PullConverter.
+Here is an example using `SRCpp::PullConverter`:
 
 ```cpp
 #include "SRCpp.h"
