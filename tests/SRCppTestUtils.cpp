@@ -1,5 +1,6 @@
 #include "SRCppTestUtils.hpp"
 #include <SRCpp/SRCpp.hpp>
+#include <iostream>
 
 // this effectively is what SRCpp::Convert does
 auto CreateOneShotReference(const std::vector<float>& input, size_t channels,
@@ -76,6 +77,73 @@ auto CreatePushReference(const std::vector<float>& input, size_t channels,
 
     output.resize(
         (output_frames_produced + src_data.output_frames_gen) * channels);
+    src_delete(state);
+    return output;
+}
+
+struct Callback {
+    std::function<std::span<float>()> function;
+    size_t channels;
+};
+
+// this effectively is what SRCpp::Pull does.
+auto CreatePullReference(std::vector<float> input, size_t channels,
+    double factor, SRCpp::Type type, size_t in_size, size_t out_size)
+    -> std::vector<float>
+{
+    auto error = 0;
+
+    auto input_span = std::span<float>(input);
+    Callback callback {
+        [&]() -> std::span<float> {
+            auto input_samples = [&]() {
+                return std::min(in_size * channels, input_span.size());
+            }();
+            auto result = input_span.subspan(0, input_samples);
+            input_span = input_span.subspan(input_samples);
+            return result;
+        },
+        channels,
+    };
+    auto* state = src_callback_new(
+        [](void* cb_data, float** data) -> long {
+            auto* callback = static_cast<Callback*>(cb_data);
+            auto inData = callback->function();
+            static float dummy;
+            *data = inData.data();
+            if (inData.size() == 0) {
+                *data = &dummy;
+                return 0;
+            }
+            return inData.size() / callback->channels;
+        },
+        static_cast<int>(type), channels, &error, &callback);
+    if (error != 0) {
+        throw std::runtime_error(src_strerror(error));
+    }
+
+    std::vector<float> output(std::max<size_t>(
+        input.size() * factor * channels * 4, out_size * channels * 4));
+
+    auto framesProduced = 0UL;
+    auto result0count = 0;
+    while (result0count < 2) {
+        auto framesToPull = out_size;
+        auto pullBuffer = std::span { output.data() + framesProduced * channels,
+            framesToPull * channels };
+        auto result = src_callback_read(
+            state, factor, pullBuffer.size() / channels, pullBuffer.data());
+        if (result < 0) {
+            throw std::runtime_error(src_strerror(src_error(state)));
+        }
+        if (result == 0) {
+            ++result0count;
+        } else {
+            result0count = 0;
+        }
+        framesProduced += result;
+    }
+    output.resize(framesProduced * channels);
     src_delete(state);
     return output;
 }
