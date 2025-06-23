@@ -1,4 +1,4 @@
-## Release notes for 0.0.1
+## Release notes for 0.1.0
 
 Bugs addressed in this release:
 
