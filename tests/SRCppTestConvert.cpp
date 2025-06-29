@@ -1,11 +1,10 @@
 #include "SRCppTestUtils.hpp"
 #include <SRCpp/SRCpp.hpp>
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 #include <numbers>
 #include <ranges>
 
-TEST_CASE("Resample", "[SRCpp]")
-{
+TEST(SRCpp, Resample) {
     for (auto frames : { 16, 256, 257, 500 }) {
         for (auto type : { SRCpp::Type::Sinc_BestQuality,
                  SRCpp::Type::Sinc_MediumQuality, SRCpp::Type::Sinc_Fastest,
@@ -23,7 +22,7 @@ TEST_CASE("Resample", "[SRCpp]")
                             input, channels, factor, type);
                         auto output = SRCpp::Convert_expected(
                             input, type, channels, factor);
-                        REQUIRE(output == reference);
+                        EXPECT_EQ(output, reference);
                     }
 #endif // SRCPP_USE_CPP23
                     {
@@ -31,7 +30,7 @@ TEST_CASE("Resample", "[SRCpp]")
                             input, channels, factor, type);
                         auto [output, error]
                             = SRCpp::Convert(input, type, channels, factor);
-                        REQUIRE(*output == reference);
+                        EXPECT_EQ(*output, reference);
                     }
                 }
             }
