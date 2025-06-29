@@ -1,6 +1,6 @@
 #include "SRCppTestUtils.hpp"
 #include <SRCpp/SRCpp.hpp>
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 #include <iostream>
 #include <numbers>
 #include <ranges>
@@ -92,8 +92,7 @@ auto ConvertWithPullOutputFrames([[maybe_unused]] bool use_cpp20,
     return output;
 }
 
-TEST_CASE("PullConverter", "[SRCpp]")
-{
+TEST(SRCppPull, PullConverter) {
     for (auto cpp_20 : { false, true }) {
         for (auto frames : { 16, 256, 257, 500 }) {
             for (auto type : {
@@ -117,22 +116,22 @@ TEST_CASE("PullConverter", "[SRCpp]")
                         {
                             auto output = ConvertWithOnePull(
                                 cpp_20, input, channels, factor, type);
-                            REQUIRE(output.size() > 0);
+                            EXPECT_GT(output.size(), 0);
                             // fudge factor for pull
                             if (std::abs(static_cast<int>(reference.size())
                                     - static_cast<int>(output.size()))
                                 == static_cast<int>(channels)) {
                                 auto mangledReference = reference;
                                 mangledReference.resize(output.size());
-                                REQUIRE(output == mangledReference);
+                                EXPECT_EQ(output, mangledReference);
                             } else {
-                                REQUIRE(output == reference);
+                                EXPECT_EQ(output, reference);
                             }
                         }
                         for (auto input_size : { 4, 32, 33, 128 }) {
                             auto output = ConvertWithOnePull(cpp_20, input,
                                 channels, factor, type, input_size);
-                            REQUIRE(output.size() > 0);
+                            EXPECT_GT(output.size(), 0);
 
                             // fudge factor for pull
                             if (std::abs(static_cast<int>(reference.size())
@@ -140,9 +139,9 @@ TEST_CASE("PullConverter", "[SRCpp]")
                                 == static_cast<int>(channels)) {
                                 auto mangledReference = reference;
                                 mangledReference.resize(output.size());
-                                REQUIRE(output == mangledReference);
+                                EXPECT_EQ(output, mangledReference);
                             } else {
-                                REQUIRE(output == reference);
+                                EXPECT_EQ(output, reference);
                             }
                         }
                         for (auto output_frames : { 4, 32, 33, 128 }) {
@@ -154,9 +153,9 @@ TEST_CASE("PullConverter", "[SRCpp]")
                                     cpp_20, input, channels, factor, type,
                                     output_frames, input_frames,
                                     reference2.size() / channels);
-                                REQUIRE(output.size() > 0);
+                                EXPECT_GT(output.size(), 0);
 
-                                REQUIRE(output == reference2);
+                                EXPECT_EQ(output, reference2);
                             }
                         }
                     }
@@ -166,8 +165,7 @@ TEST_CASE("PullConverter", "[SRCpp]")
     }
 }
 
-TEST_CASE("Test moving a pull converters work", "[SRCpp]")
-{
+TEST(SRCppPull, MovingConverter) {
     auto frames = 256;
     auto input_frames = 64;
     auto output_frames = size_t(16);
@@ -217,11 +215,10 @@ TEST_CASE("Test moving a pull converters work", "[SRCpp]")
     }
     output.resize(framesProduced * channels);
 
-    REQUIRE(output == reference);
+    EXPECT_EQ(output, reference);
 }
 
-TEST_CASE("Test returning none", "[SRCpp]")
-{
+TEST(SRCppPull, ReturningNone) {
     std::vector<float> output(10);
     auto type = SRCpp::Type::Sinc_BestQuality;
     auto factor = 0.9;
@@ -229,7 +226,8 @@ TEST_CASE("Test returning none", "[SRCpp]")
     auto callback = [&]() -> std::span<float> { return {}; };
     auto puller = SRCpp::PullConverter(callback, type, channels, factor);
     auto [data, error] = puller.convert(output);
-    REQUIRE(data->size() == 0);
+    ASSERT_TRUE(data.has_value());
+    EXPECT_EQ(data->size(), 0);
 }
 
 // TEST_CASE("Test returning 0, then returning more", "[SRCpp]")

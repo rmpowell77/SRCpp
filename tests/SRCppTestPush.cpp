@@ -1,6 +1,6 @@
 #include "SRCppTestUtils.hpp"
 #include <SRCpp/SRCpp.hpp>
-#include <catch2/catch_test_macros.hpp>
+#include <gtest/gtest.h>
 #include <numbers>
 #include <ranges>
 
@@ -127,8 +127,7 @@ auto ConvertWithPushReuseMemory([[maybe_unused]] bool cpp_20,
     return output;
 }
 
-TEST_CASE("PushConverter", "[SRCpp]")
-{
+TEST(SRCppPush, PushConverter) {
     for (auto cpp_20 : { false, true }) {
         for (auto frames : { 16, 256, 257, 500 }) {
             for (auto type : { SRCpp::Type::Sinc_BestQuality,
@@ -147,13 +146,13 @@ TEST_CASE("PushConverter", "[SRCpp]")
                             auto output = ConvertWithPush(
                                 cpp_20, input, channels, factor, type, frames);
 
-                            REQUIRE(output == reference);
+                            EXPECT_EQ(output, reference);
                         }
                         {
                             auto output = ConvertWithPushReuseMemory(
                                 cpp_20, input, channels, factor, type, frames);
 
-                            REQUIRE(output == reference);
+                            EXPECT_EQ(output, reference);
                         }
                         for (auto input_size : { 4, 8, 16, 32, 64 }) {
                             auto output = ConvertWithPush(cpp_20, input,
@@ -162,9 +161,9 @@ TEST_CASE("PushConverter", "[SRCpp]")
                             if (type == SRCpp::Type::ZeroOrderHold) {
                                 auto mangledReference = reference;
                                 mangledReference.resize(output.size());
-                                REQUIRE(output == mangledReference);
+                                EXPECT_EQ(output, mangledReference);
                             } else {
-                                REQUIRE(output == reference);
+                                EXPECT_EQ(output, reference);
                             }
                         }
                     }
@@ -174,9 +173,7 @@ TEST_CASE("PushConverter", "[SRCpp]")
     }
 }
 
-TEST_CASE("Test copying a convert allows both to create the right results.",
-    "[SRCpp]")
-{
+TEST(SRCppPush, CopyingConverter) {
     auto frames = 64;
     auto firstPush = 10;
     auto type = SRCpp::Type::Sinc_BestQuality;
@@ -243,12 +240,11 @@ TEST_CASE("Test copying a convert allows both to create the right results.",
             flush->end()); // append flush to data
     }
 
-    REQUIRE(output1 == reference);
-    REQUIRE(output2 == reference);
+    EXPECT_EQ(output1, reference);
+    EXPECT_EQ(output2, reference);
 }
 
-TEST_CASE("Test moving a pull converters work", "[SRCpp]")
-{
+TEST(SRCppPush, MovingConverter) {
     auto frames = 64;
     auto firstPush = 10;
     auto type = SRCpp::Type::Sinc_BestQuality;
@@ -297,11 +293,10 @@ TEST_CASE("Test moving a pull converters work", "[SRCpp]")
             flush->end()); // append flush to data
     }
 
-    REQUIRE(output1 == reference);
+    EXPECT_EQ(output1, reference);
 }
 
-TEST_CASE("Push more after flush.", "[SRCpp]")
-{
+TEST(SRCppPush, PushAfterFlush) {
     auto frames = 64;
     auto firstPush = 10;
     auto type = SRCpp::Type::Sinc_BestQuality;
@@ -349,5 +344,5 @@ TEST_CASE("Push more after flush.", "[SRCpp]")
             flush->end()); // append flush to data
     }
 
-    REQUIRE(output2 == reference);
+    EXPECT_EQ(output2, reference);
 }
