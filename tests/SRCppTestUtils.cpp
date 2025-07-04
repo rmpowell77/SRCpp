@@ -22,7 +22,7 @@ auto CreateOneShotReference(const std::vector<float>& input, size_t channels,
         throw std::runtime_error(src_strerror(result));
     }
 
-    output.resize(src_data.output_frames_gen);
+    output.resize(src_data.output_frames_gen * channels);
     return output;
 }
 
