@@ -401,7 +401,7 @@ inline auto Convert(std::span<const float> input, std::span<float> output,
     }
 
     return { std::span { output.data(),
-                 static_cast<size_t>(src_data.output_frames_gen) },
+                 static_cast<size_t>(src_data.output_frames_gen * channels) },
         {} };
 }
 
