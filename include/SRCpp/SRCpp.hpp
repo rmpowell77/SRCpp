@@ -261,20 +261,28 @@ enum struct Type : uint8_t {
     Linear = SRC_LINEAR
 };
 
+// Concept to restrict types to short, int, or float
+template <typename T>
+concept SupportedSampleType = std::is_same_v<T, short> || std::is_same_v<T, int>
+    || std::is_same_v<T, float>;
+
 #if SRCPP_USE_CPP23
-auto Convert_expected(std::span<const float> input, std::span<float> output,
+template <SupportedSampleType To, SupportedSampleType From>
+auto Convert_expected(std::span<const From> input, std::span<To> output,
     SRCpp::Type type, int channels, double factor)
-    -> std::expected<std::span<float>, std::string>;
-auto Convert_expected(
-    std::span<const float> input, SRCpp::Type type, int channels, double factor)
-    -> std::expected<std::vector<float>, std::string>;
+    -> std::expected<std::span<To>, std::string>;
+template <SupportedSampleType To, SupportedSampleType From = float>
+auto Convert_expected(std::span<const From> input, SRCpp::Type type,
+    int channels, double factor) -> std::expected<std::vector<To>, std::string>;
 #endif // SRCPP_USE_CPP23
 
-auto Convert(std::span<const float> input, std::span<float> output,
+template <SupportedSampleType To, SupportedSampleType From>
+auto Convert(std::span<const From> input, std::span<To> output,
     SRCpp::Type type, int channels, double factor)
-    -> std::pair<std::optional<std::span<float>>, std::string>;
-auto Convert(std::span<const float> input, SRCpp::Type type, int channels,
-    double factor) -> std::pair<std::optional<std::vector<float>>, std::string>;
+    -> std::pair<std::optional<std::span<To>>, std::string>;
+template <SupportedSampleType To, SupportedSampleType From>
+auto Convert(std::span<const From> input, SRCpp::Type type, int channels,
+    double factor) -> std::pair<std::optional<std::vector<To>>, std::string>;
 
 class PushConverter {
 public:
@@ -286,22 +294,62 @@ public:
     auto operator=(PushConverter&& other) noexcept -> PushConverter&;
 
 #if SRCPP_USE_CPP23
-    auto convert_expected(std::span<const float> input, std::span<float> output)
-        -> std::expected<std::span<float>, std::string>;
+    template <SupportedSampleType To, SupportedSampleType From>
+    auto convert_expected(std::span<const From> input, std::span<To> output)
+        -> std::expected<std::span<To>, std::string>;
 
-    auto convert_expected(std::span<const float> input)
-        -> std::expected<std::vector<float>, std::string>;
+    template <SupportedSampleType To, SupportedSampleType From>
+    auto convert_expected(std::span<const From> input)
+        -> std::expected<std::vector<To>, std::string>;
 
-    auto flush_expected() -> std::expected<std::vector<float>, std::string>;
+    template <SupportedSampleType To>
+    auto flush_expected() -> std::expected<std::vector<To>, std::string>;
 #endif // SRCPP_USE_CPP23
 
-    auto convert(std::span<const float> input, std::span<float> output)
-        -> std::pair<std::optional<std::span<float>>, std::string>;
+    template <SupportedSampleType To, SupportedSampleType From>
+    auto convert(std::span<const From> input, std::span<To> output)
+        -> std::pair<std::optional<std::span<To>>, std::string>;
 
-    auto convert(std::span<const float> input)
-        -> std::pair<std::optional<std::vector<float>>, std::string>;
+    template <SupportedSampleType To, SupportedSampleType From>
+    auto convert(std::span<const From> input)
+        -> std::pair<std::optional<std::vector<To>>, std::string>;
 
-    auto flush() -> std::pair<std::optional<std::vector<float>>, std::string>;
+    template <SupportedSampleType To>
+    auto flush() -> std::pair<std::optional<std::vector<To>>, std::string>;
+
+#if SRCPP_USE_CPP23
+    template <typename ToContainer, typename FromContainer,
+        SupportedSampleType To = typename ToContainer::value_type,
+        SupportedSampleType From = typename FromContainer::value_type>
+    auto convert_expected(FromContainer const& input, ToContainer& output)
+    {
+        return convert_expected<To, From>(
+            std::span<const From> { input }, std::span<To> { output });
+    }
+
+    template <SupportedSampleType To, typename FromContainer,
+        SupportedSampleType From = typename FromContainer::value_type>
+    auto convert_expected(FromContainer const& input)
+    {
+        return convert_expected<To, From>(std::span<const From> { input });
+    }
+#endif // SRCPP_USE_CPP23
+
+    template <typename ToContainer, typename FromContainer,
+        SupportedSampleType To = typename ToContainer::value_type,
+        SupportedSampleType From = typename FromContainer::value_type>
+    auto convert(FromContainer const& input, ToContainer& output)
+    {
+        return convert(
+            std::span<const From> { input }, std::span<To> { output });
+    }
+
+    template <SupportedSampleType To, typename FromContainer,
+        SupportedSampleType From = typename FromContainer::value_type>
+    auto convert(FromContainer const& input)
+    {
+        return convert<To, From>(std::span<const From> { input });
+    }
 
 private:
     SRC_STATE* state_ { nullptr };
@@ -311,6 +359,7 @@ private:
     const float dummy_ {};
     std::vector<float> reserved_input_;
     std::vector<float> last_input_;
+    std::vector<float> scratch_output_;
     size_t input_frames_consumed_ { 0 };
     size_t output_frames_produced_ { 0 };
 
@@ -326,9 +375,9 @@ private:
             std::string>;
 };
 
-class PullConverter {
+template <SupportedSampleType From = float> class PullConverter {
 public:
-    using callback_t = std::function<std::span<float>()>;
+    using callback_t = std::function<std::span<From>()>;
     PullConverter(
         callback_t callback, SRCpp::Type type, int channels, double factor);
     ~PullConverter();
@@ -337,30 +386,58 @@ public:
     auto operator=(PullConverter&& other) noexcept -> PullConverter&;
 
 #if SRCPP_USE_CPP23
-    auto convert_expected(std::span<float> output)
-        -> std::expected<std::span<float>, std::string>;
+    template <SupportedSampleType To>
+    auto convert_expected(std::span<To> output)
+        -> std::expected<std::span<To>, std::string>;
 #endif // SRCPP_USE_CPP23
 
-    auto convert(std::span<float> output)
-        -> std::pair<std::optional<std::span<float>>, std::string>;
+    template <SupportedSampleType To>
+    auto convert(std::span<To> output)
+        -> std::pair<std::optional<std::span<To>>, std::string>;
+
+#if SRCPP_USE_CPP23
+    template <typename ToContainer,
+        SupportedSampleType To = typename ToContainer::value_type>
+    auto convert_expected(ToContainer& output)
+    {
+        return convert_expected<To>(std::span<To> { output });
+    }
+#endif // SRCPP_USE_CPP23
+
+    template <typename ToContainer,
+        SupportedSampleType To = typename ToContainer::value_type>
+    auto convert(ToContainer& output)
+    {
+        return convert(std::span<To> { output });
+    }
 
 private:
     struct CallbackHandle {
+        CallbackHandle(callback_t callback, int channels)
+            : callback_(callback)
+            , channels_(channels)
+            , last_input_(channels_)
+        {
+        }
         callback_t callback_;
         float dummy_ {};
         int channels_ { 0 };
         auto handle_callback(float** data) -> long;
+        std::vector<float> scratch_input_;
+        std::vector<float> last_input_;
     };
     std::unique_ptr<CallbackHandle> callback_;
+    std::vector<float> scratch_output_;
     SRC_STATE* state_ { nullptr };
     double factor_ { 1.0 };
 };
 
 // Implementation details
 #if SRCPP_USE_CPP23
-inline auto Convert_expected(std::span<const float> input,
-    std::span<float> output, SRCpp::Type type, int channels, double factor)
-    -> std::expected<std::span<float>, std::string>
+template <SupportedSampleType To, SupportedSampleType From>
+inline auto Convert_expected(std::span<const From> input, std::span<To> output,
+    SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::span<To>, std::string>
 {
     auto [result, error] = Convert(input, output, type, channels, factor);
     if (result.has_value()) {
@@ -369,11 +446,11 @@ inline auto Convert_expected(std::span<const float> input,
     return std::unexpected(error);
 }
 
-inline auto Convert_expected(
-    std::span<const float> input, SRCpp::Type type, int channels, double factor)
-    -> std::expected<std::vector<float>, std::string>
+template <SupportedSampleType To, SupportedSampleType From>
+inline auto Convert_expected(std::span<const From> input, SRCpp::Type type,
+    int channels, double factor) -> std::expected<std::vector<To>, std::string>
 {
-    auto [result, error] = Convert(input, type, channels, factor);
+    auto [result, error] = Convert<To, From>(input, type, channels, factor);
     if (result.has_value()) {
         return *result;
     }
@@ -381,37 +458,72 @@ inline auto Convert_expected(
 }
 #endif // SRCPP_USE_CPP23
 
-inline auto Convert(std::span<const float> input, std::span<float> output,
+template <SupportedSampleType To, SupportedSampleType From>
+inline auto Convert(std::span<const From> input, std::span<To> output,
     SRCpp::Type type, int channels, double factor)
-    -> std::pair<std::optional<std::span<float>>, std::string>
+    -> std::pair<std::optional<std::span<To>>, std::string>
 {
-    auto src_data = SRC_DATA {
-        input.data(),
-        output.data(),
-        static_cast<long>(input.size() / channels),
-        static_cast<long>(output.size() / channels),
-        0,
-        0,
-        1,
-        factor,
-    };
-    if (auto result = src_simple(&src_data, static_cast<int>(type), channels);
-        result != 0) {
-        return { std::nullopt, src_strerror(result) };
-    }
+    // convert input format to Float
+    if constexpr (std::is_same_v<From, short>) {
+        std::vector<float> converted_input(input.size());
+        src_short_to_float_array(
+            input.data(), converted_input.data(), input.size());
+        return Convert(converted_input, output, type, channels, factor);
+    } else if constexpr (std::is_same_v<From, int>) {
+        std::vector<float> converted_input(input.size());
+        src_int_to_float_array(
+            input.data(), converted_input.data(), input.size());
+        return Convert(converted_input, output, type, channels, factor);
+    } else {
+        std::vector<float> data;
+        float* outputData = nullptr;
+        auto outputSize = output.size();
+        if constexpr (!std::is_same_v<To, float>) {
+            data.resize(outputSize);
+            outputData = data.data();
+        } else {
+            outputData = output.data();
+        }
+        auto src_data = SRC_DATA {
+            input.data(),
+            outputData,
+            static_cast<long>(input.size() / channels),
+            static_cast<long>(outputSize / channels),
+            0,
+            0,
+            1,
+            factor,
+        };
+        if (auto result
+            = src_simple(&src_data, static_cast<int>(type), channels);
+            result != 0) {
+            return { std::nullopt, src_strerror(result) };
+        }
 
-    return { std::span { output.data(),
-                 static_cast<size_t>(src_data.output_frames_gen * channels) },
-        {} };
+        // convert from float to output format
+        if constexpr (std::is_same_v<To, short>) {
+            src_float_to_short_array(outputData, output.data(),
+                src_data.output_frames_gen * channels);
+        }
+        if constexpr (std::is_same_v<To, int>) {
+            src_float_to_int_array(outputData, output.data(),
+                src_data.output_frames_gen * channels);
+        }
+        return { std::span { output.data(),
+                     static_cast<size_t>(
+                         src_data.output_frames_gen * channels) },
+            {} };
+    }
 }
 
-inline auto Convert(
-    std::span<const float> input, SRCpp::Type type, int channels, double factor)
-    -> std::pair<std::optional<std::vector<float>>, std::string>
+template <SupportedSampleType To, SupportedSampleType From>
+inline auto Convert(std::span<const From> input, SRCpp::Type type, int channels,
+    double factor) -> std::pair<std::optional<std::vector<To>>, std::string>
 {
-    std::vector<float> output(
-        std::ceil((input.size() + 1) * factor * channels));
-    auto [result, error] = Convert(input, output, type, channels, factor);
+    std::vector<To> output(
+        (std::ceil((input.size() / channels) * factor) + 1) * channels);
+    auto [result, error]
+        = Convert<To, From>(input, output, type, channels, factor);
     if (!result.has_value()) {
         return { std::nullopt, error };
     }
@@ -440,6 +552,7 @@ inline PushConverter::PushConverter(const PushConverter& other)
     , factor_(other.factor_)
     , reserved_input_(other.reserved_input_)
     , last_input_(other.last_input_)
+    , scratch_output_(other.scratch_output_)
     , input_frames_consumed_(other.input_frames_consumed_)
     , output_frames_produced_(other.output_frames_produced_)
 {
@@ -465,6 +578,7 @@ inline auto PushConverter::operator=(const PushConverter& other)
         factor_ = other.factor_;
         reserved_input_ = other.reserved_input_;
         last_input_ = other.last_input_;
+        scratch_output_ = other.scratch_output_;
         input_frames_consumed_ = other.input_frames_consumed_;
         output_frames_produced_ = other.output_frames_produced_;
     }
@@ -478,6 +592,7 @@ inline PushConverter::PushConverter(PushConverter&& other) noexcept
     , factor_(other.factor_)
     , reserved_input_(std::move(other.reserved_input_))
     , last_input_(std::move(other.last_input_))
+    , scratch_output_(std::move(other.scratch_output_))
     , input_frames_consumed_(other.input_frames_consumed_)
     , output_frames_produced_(other.output_frames_produced_)
 {
@@ -495,6 +610,7 @@ inline auto PushConverter::operator=(PushConverter&& other) noexcept
         factor_ = other.factor_;
         reserved_input_ = std::move(other.reserved_input_);
         last_input_ = std::move(other.last_input_);
+        scratch_output_ = std::move(other.scratch_output_);
         input_frames_consumed_ = other.input_frames_consumed_;
         output_frames_produced_ = other.output_frames_produced_;
         other.state_ = nullptr;
@@ -503,40 +619,63 @@ inline auto PushConverter::operator=(PushConverter&& other) noexcept
 }
 
 #if SRCPP_USE_CPP23
-inline auto PushConverter::convert_expected(std::span<const float> input,
-    std::span<float> output) -> std::expected<std::span<float>, std::string>
+template <SupportedSampleType To, SupportedSampleType From>
+inline auto PushConverter::convert_expected(std::span<const From> input,
+    std::span<To> output) -> std::expected<std::span<To>, std::string>
 {
-    auto [result, error] = convert(input, output);
+    auto [result, error] = convert<To, From>(input, output);
     if (result.has_value()) {
         return *result;
     }
     return std::unexpected(error);
 }
 
-inline auto PushConverter::convert_expected(std::span<const float> input)
-    -> std::expected<std::vector<float>, std::string>
+template <SupportedSampleType To, SupportedSampleType From>
+inline auto PushConverter::convert_expected(std::span<const From> input)
+    -> std::expected<std::vector<To>, std::string>
 {
-    auto [result, error] = convert(input);
+    auto [result, error] = convert<To, From>(input);
     if (result.has_value()) {
         return *result;
     }
     return std::unexpected(error);
 }
 
+template <SupportedSampleType To>
 inline auto PushConverter::flush_expected()
-    -> std::expected<std::vector<float>, std::string>
+    -> std::expected<std::vector<To>, std::string>
 {
-    return convert_expected({});
+    return convert_expected<To, float>(std::vector<float> {});
 }
 #endif // SRCPP_USE_CPP23
 
+template <SupportedSampleType To, SupportedSampleType From>
 inline auto PushConverter::convert(
-    std::span<const float> input, std::span<float> output)
-    -> std::pair<std::optional<std::span<float>>, std::string>
+    std::span<const From> input, std::span<To> output)
+    -> std::pair<std::optional<std::span<To>>, std::string>
 {
-    reserved_input_.insert(reserved_input_.end(), input.begin(), input.end());
+    // convert from input format to float
+    auto offsetToPlace = reserved_input_.size();
+    reserved_input_.resize(reserved_input_.size() + input.size());
+    auto* whereToPlaceData = reserved_input_.data() + offsetToPlace;
+    if constexpr (std::is_same_v<From, short>) {
+        src_short_to_float_array(input.data(), whereToPlaceData, input.size());
+    } else if constexpr (std::is_same_v<From, int>) {
+        src_int_to_float_array(input.data(), whereToPlaceData, input.size());
+    } else {
+        std::copy(input.begin(), input.end(), whereToPlaceData);
+    }
+    // where to put things?
+    auto output_span = [&]() -> std::span<float> {
+        if constexpr (std::is_same_v<To, float>) {
+            return output;
+        } else {
+            scratch_output_.resize(output.size());
+            return scratch_output_;
+        }
+    }();
     auto [result, error]
-        = convertWithFixFor208(reserved_input_, output, input.empty());
+        = convertWithFixFor208(reserved_input_, output_span, input.empty());
     if (!result.has_value()) {
         return { std::nullopt, error };
     }
@@ -544,11 +683,23 @@ inline auto PushConverter::convert(
     std::copy(input_data.begin(), input_data.end(), reserved_input_.begin());
     reserved_input_.resize(input_data.size());
 
-    return { output_data, {} };
+    // convert from float to output format
+    if constexpr (std::is_same_v<To, short>) {
+        src_float_to_short_array(
+            output_data.data(), output.data(), output_data.size());
+        return { output.first(output_data.size()), {} };
+    } else if constexpr (std::is_same_v<To, int>) {
+        src_float_to_int_array(
+            output_data.data(), output.data(), output_data.size());
+        return { output.first(output_data.size()), {} };
+    } else {
+        return { output_data, {} };
+    }
 }
 
-inline auto PushConverter::convert(std::span<const float> input)
-    -> std::pair<std::optional<std::vector<float>>, std::string>
+template <SupportedSampleType To, SupportedSampleType From>
+inline auto PushConverter::convert(std::span<const From> input)
+    -> std::pair<std::optional<std::vector<To>>, std::string>
 {
     auto expected_frames_produced
         = static_cast<size_t>(std::ceil(input_frames_consumed_ * factor_));
@@ -561,7 +712,7 @@ inline auto PushConverter::convert(std::span<const float> input)
         }
         return 0;
     }() + 1;
-    std::vector<float> output(amount * channels_);
+    std::vector<To> output(amount * channels_);
     auto [result, error] = convert(input, output);
     if (!result.has_value()) {
         return { std::nullopt, error };
@@ -570,10 +721,11 @@ inline auto PushConverter::convert(std::span<const float> input)
     return { output, {} };
 }
 
+template <SupportedSampleType To>
 inline auto PushConverter::flush()
-    -> std::pair<std::optional<std::vector<float>>, std::string>
+    -> std::pair<std::optional<std::vector<To>>, std::string>
 {
-    return convert({});
+    return convert<To, float>(std::vector<float> {});
 }
 
 inline auto PushConverter::convert(
@@ -652,9 +804,10 @@ inline auto PushConverter::convertWithFixFor208(
     return { std::pair { input.subspan(input_data_used), output_created }, {} };
 }
 
-inline PullConverter::PullConverter(
+template <SupportedSampleType From>
+inline PullConverter<From>::PullConverter(
     callback_t callback, SRCpp::Type type, int channels, double factor)
-    : callback_ { std::make_unique<CallbackHandle>(callback, 0, channels) }
+    : callback_ { std::make_unique<CallbackHandle>(callback, channels) }
     , factor_ { factor }
 {
     auto error = 0;
@@ -669,30 +822,40 @@ inline PullConverter::PullConverter(
     }
 }
 
-inline PullConverter::~PullConverter() { src_delete(state_); }
+template <SupportedSampleType From> inline PullConverter<From>::~PullConverter()
+{
+    src_delete(state_);
+}
 
-inline PullConverter::PullConverter(PullConverter&& other) noexcept
+template <SupportedSampleType From>
+inline PullConverter<From>::PullConverter(PullConverter&& other) noexcept
     : callback_(std::move(other.callback_))
+    , scratch_output_(std::move(other.scratch_output_))
     , state_(other.state_)
     , factor_(other.factor_)
 {
     other.state_ = nullptr;
 }
 
-inline auto PullConverter::operator=(PullConverter&& other) noexcept
+template <SupportedSampleType From>
+inline auto PullConverter<From>::operator=(PullConverter&& other) noexcept
     -> PullConverter&
 {
     if (this != &other) {
-        std::swap(callback_, other.callback_);
-        std::swap(state_, other.state_);
-        std::swap(factor_, other.factor_);
+        using std::swap;
+        swap(callback_, other.callback_);
+        swap(scratch_output_, other.scratch_output_);
+        swap(state_, other.state_);
+        swap(factor_, other.factor_);
     }
     return *this;
 }
 
 #if SRCPP_USE_CPP23
-inline auto PullConverter::convert_expected(std::span<float> output)
-    -> std::expected<std::span<float>, std::string>
+template <SupportedSampleType From>
+template <SupportedSampleType To>
+inline auto PullConverter<From>::convert_expected(std::span<To> output)
+    -> std::expected<std::span<To>, std::string>
 {
     auto [result, error] = convert(output);
     if (result.has_value()) {
@@ -702,18 +865,38 @@ inline auto PullConverter::convert_expected(std::span<float> output)
 }
 #endif // SRCPP_USE_CPP23
 
-inline auto PullConverter::convert(std::span<float> output)
-    -> std::pair<std::optional<std::span<float>>, std::string>
+template <SupportedSampleType From>
+template <SupportedSampleType To>
+inline auto PullConverter<From>::convert(std::span<To> output)
+    -> std::pair<std::optional<std::span<To>>, std::string>
 {
-    auto size = src_callback_read(
-        state_, factor_, output.size() / callback_->channels_, output.data());
+    // where to put things?
+    auto output_data = [&]() -> std::span<float> {
+        if constexpr (std::is_same_v<To, float>) {
+            return output;
+        } else {
+            scratch_output_.resize(output.size());
+            return scratch_output_;
+        }
+    }();
+    auto size = src_callback_read(state_, factor_,
+        output_data.size() / callback_->channels_, output_data.data());
     if (size < 0) {
         return { std::nullopt, src_strerror(src_error(state_)) };
     }
-    return { output.subspan(0, size * callback_->channels_), {} };
+    auto samples = size * callback_->channels_;
+    // convert from float to output format
+    if constexpr (std::is_same_v<To, short>) {
+        src_float_to_short_array(output_data.data(), output.data(), samples);
+    } else if constexpr (std::is_same_v<To, int>) {
+        src_float_to_int_array(output_data.data(), output.data(), samples);
+    }
+    return { output.first(samples), {} };
 }
 
-inline auto PullConverter::CallbackHandle::handle_callback(float** data) -> long
+template <SupportedSampleType From>
+inline auto PullConverter<From>::CallbackHandle::handle_callback(float** data)
+    -> long
 {
     if (data == nullptr) {
         return 0;
@@ -727,9 +910,89 @@ inline auto PullConverter::CallbackHandle::handle_callback(float** data) -> long
         *data = &dummy_;
         return 0;
     }
-    *data = newData.data();
+    // convert from input format to float
+    auto* inputData = [&]() {
+        if constexpr (std::is_same_v<From, short>) {
+            scratch_input_.resize(newData.size());
+            src_short_to_float_array(
+                newData.data(), scratch_input_.data(), newData.size());
+            return scratch_input_.data();
+        } else if constexpr (std::is_same_v<From, int>) {
+            scratch_input_.resize(newData.size());
+            src_int_to_float_array(
+                newData.data(), scratch_input_.data(), newData.size());
+            return scratch_input_.data();
+        } else {
+            return newData.data();
+        }
+    }();
+    // https://github.com/libsndfile/libsamplerate/issues/208
+    // When there is 1 frame of data, the linear SRC assumes it can read
+    // the previous values and reads off the begin of the array.
+    // Temporary fix until that is resolved.
+    auto* fixedInputData = [&]() {
+        if (newData.size() == static_cast<size_t>(channels_)) {
+            last_input_.insert(
+                last_input_.end(), inputData, inputData + channels_);
+            return last_input_.data() + channels_;
+        }
+        last_input_.assign(
+            inputData + newData.size() - channels_, inputData + newData.size());
+        return inputData;
+    }();
+    *data = fixedInputData;
     return newData.size() / channels_;
 }
+
+// deduction helpers
+#if SRCPP_USE_CPP23
+template <typename ToContainer, typename FromContainer,
+    SupportedSampleType To = typename ToContainer::value_type,
+    SupportedSampleType From = typename FromContainer::value_type>
+auto Convert_expected(FromContainer const& input, ToContainer& output,
+    SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::span<To>, std::string>
+{
+    return Convert_expected<To, From>(std::span<const From> { input },
+        std::span<To> { output }, type, channels, factor);
+}
+
+template <SupportedSampleType To, typename FromContainer,
+    SupportedSampleType From = typename FromContainer::value_type>
+auto Convert_expected(
+    FromContainer const& input, SRCpp::Type type, int channels, double factor)
+    -> std::pair<std::optional<std::vector<To>>, std::string>
+{
+    return Convert_expected<To, From>(
+        std::span<const From>(input), type, channels, factor);
+}
+#endif // SRCPP_USE_CPP23
+
+template <typename FromContainer, typename ToContainer,
+    SupportedSampleType From = typename FromContainer::value_type,
+    SupportedSampleType To = typename ToContainer::value_type>
+auto Convert(FromContainer const& input, ToContainer& output, SRCpp::Type type,
+    int channels, double factor)
+    -> std::pair<std::optional<std::span<To>>, std::string>
+{
+    return Convert<To, From>(std::span<const From> { input },
+        std::span<To> { output }, type, channels, factor);
+}
+
+template <SupportedSampleType To, typename FromContainer,
+    SupportedSampleType From = typename FromContainer::value_type>
+auto Convert(FromContainer const& input, SRCpp::Type type, int channels,
+    double factor) -> std::pair<std::optional<std::vector<To>>, std::string>
+{
+    return Convert<To, From>(
+        std::span<const From> { input }, type, channels, factor);
+}
+
+// CTAD guide for Pull convert
+template <typename Callback>
+PullConverter(Callback&&, SRCpp::Type, int, double)
+    -> PullConverter<std::remove_cvref_t<
+        std::remove_pointer_t<decltype(std::declval<Callback>()().data())>>>;
 }
 
 // Custom formatter specialization for SRC_DATA

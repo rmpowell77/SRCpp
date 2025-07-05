@@ -27,7 +27,7 @@ int exampleConverter()
     auto channels = 1;
 
     // Perform sample rate conversion with a ratio of 1.5
-    auto [output, error] = SRCpp::Convert(
+    auto [output, error] = SRCpp::Convert<float>(
         input, SRCpp::Type::Sinc_MediumQuality, channels, ratio);
 
     // Output the converted data
@@ -54,10 +54,10 @@ int examplePushConverter()
 
     auto converter = SRCpp::PushConverter(
         SRCpp::Type::Sinc_MediumQuality, channels, ratio);
-    auto output = converter.convert_expected(input).and_then(
+    auto output = converter.convert_expected<float>(input).and_then(
         [&converter](
             auto data) -> std::expected<std::vector<float>, std::string> {
-            auto flush = converter.flush_expected();
+            auto flush = converter.flush_expected<float>();
             if (flush.has_value()) {
                 data.insert(data.end(), flush->begin(), flush->end());
             }
@@ -95,7 +95,7 @@ int examplePullConverter()
         frames_left -= input_span.size();
         return input_span;
     };
-    auto puller = SRCpp::PullConverter(
+    auto puller = SRCpp::PullConverter<float>(
         callback, SRCpp::Type::Sinc_MediumQuality, channels, ratio);
 
     auto buffer = std::vector<float>(input.size() * ratio);
@@ -123,8 +123,8 @@ int try_simple()
     }
     std::println("");
     {
-        auto [output, error]
-            = SRCpp::Convert(data, SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
+        auto [output, error] = SRCpp::Convert<float>(
+            data, SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
 
         if (output.has_value()) {
             std::println("data");
@@ -150,7 +150,7 @@ int try_normal()
         auto src
             = SRCpp::PushConverter(SRCpp::Type::Sinc_MediumQuality, 1, 0.1);
         {
-            auto [output, error] = src.convert(data);
+            auto [output, error] = src.convert<float>(data);
             if (output.has_value()) {
                 std::println("output({})", output->size());
                 for (auto i : *output) {
@@ -160,7 +160,7 @@ int try_normal()
             }
         }
         {
-            auto [output, error] = src.convert({});
+            auto [output, error] = src.flush<float>();
             if (output.has_value()) {
                 std::println("output({})", output->size());
                 for (auto i : *output) {
