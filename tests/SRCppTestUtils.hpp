@@ -112,7 +112,7 @@ auto ConvertWithOnePull([[maybe_unused]] bool use_cpp20,
         input_span = input_span.subspan(input_samples);
         return result;
     };
-    auto puller = SRCpp::PullConverter<From>(callback, type, channels, factor);
+    auto puller = SRCpp::PullConverter(callback, type, channels, factor);
 #if SRCPP_USE_CPP23
     if (use_cpp20) {
 #endif // SRCPP_USE_CPP23

@@ -375,12 +375,24 @@ private:
             std::string>;
 };
 
-template <SupportedSampleType From = float> class PullConverter {
+class PullConverter {
 public:
-    using callback_t = std::function<std::span<From>()>;
+    // using callback_t = std::function<std::span<From>()>;
+    template <typename Callback>
     PullConverter(
-        callback_t callback, SRCpp::Type type, int channels, double factor);
+        Callback&& callback, SRCpp::Type type, int channels, double factor);
     ~PullConverter();
+
+    template <typename T>
+    PullConverter(std::span<T> (*func)(void*), void* context, SRCpp::Type type,
+        int channels, double factor)
+        : PullConverter(
+            [func, context]() { return func(context); }, type, channels, factor)
+    {
+        static_assert(SupportedSampleType<T>,
+            "Function must return std::span<T> where T is short, int, or "
+            "float");
+    }
 
     PullConverter(PullConverter&& other) noexcept;
     auto operator=(PullConverter&& other) noexcept -> PullConverter&;
@@ -413,16 +425,33 @@ public:
 
 private:
     struct CallbackHandle {
-        CallbackHandle(callback_t callback, int channels)
-            : callback_(callback)
+        virtual ~CallbackHandle() = default;
+        virtual auto handle_callback(float** data) -> long = 0;
+    };
+    template <typename Callback> struct CallbackHandleImpl : CallbackHandle {
+        CallbackHandleImpl(Callback&& callback, int channels)
+            : callback_(std::forward<Callback>(callback))
             , channels_(channels)
             , last_input_(channels_)
         {
+            static_assert(
+                std::is_invocable_r_v<std::span<typename std::invoke_result_t<
+                                          Callback>::value_type>,
+                    Callback>,
+                "Callback must be callable with no arguments and return "
+                "std::span of SupportedSampleType");
+            static_assert(
+                SupportedSampleType<
+                    typename std::invoke_result_t<Callback>::value_type>,
+                "Callback must return std::span<T> where T is short, int, or "
+                "float");
         }
-        callback_t callback_;
+        auto handle_callback(float** data) -> long;
+
+    private:
+        Callback callback_;
         float dummy_ {};
         int channels_ { 0 };
-        auto handle_callback(float** data) -> long;
         std::vector<float> scratch_input_;
         std::vector<float> last_input_;
     };
@@ -430,6 +459,7 @@ private:
     std::vector<float> scratch_output_;
     SRC_STATE* state_ { nullptr };
     double factor_ { 1.0 };
+    int channels_ { 0 };
 };
 
 // Implementation details
@@ -804,11 +834,13 @@ inline auto PushConverter::convertWithFixFor208(
     return { std::pair { input.subspan(input_data_used), output_created }, {} };
 }
 
-template <SupportedSampleType From>
-inline PullConverter<From>::PullConverter(
-    callback_t callback, SRCpp::Type type, int channels, double factor)
-    : callback_ { std::make_unique<CallbackHandle>(callback, channels) }
+template <typename Callback>
+inline PullConverter::PullConverter(
+    Callback&& callback, SRCpp::Type type, int channels, double factor)
+    : callback_ { std::make_unique<CallbackHandleImpl<Callback>>(
+        std::forward<Callback>(callback), channels) }
     , factor_ { factor }
+    , channels_ { channels }
 {
     auto error = 0;
     state_ = src_callback_new(
@@ -822,23 +854,19 @@ inline PullConverter<From>::PullConverter(
     }
 }
 
-template <SupportedSampleType From> inline PullConverter<From>::~PullConverter()
-{
-    src_delete(state_);
-}
+inline PullConverter::~PullConverter() { src_delete(state_); }
 
-template <SupportedSampleType From>
-inline PullConverter<From>::PullConverter(PullConverter&& other) noexcept
+inline PullConverter::PullConverter(PullConverter&& other) noexcept
     : callback_(std::move(other.callback_))
     , scratch_output_(std::move(other.scratch_output_))
     , state_(other.state_)
     , factor_(other.factor_)
+    , channels_(other.channels_)
 {
     other.state_ = nullptr;
 }
 
-template <SupportedSampleType From>
-inline auto PullConverter<From>::operator=(PullConverter&& other) noexcept
+inline auto PullConverter::operator=(PullConverter&& other) noexcept
     -> PullConverter&
 {
     if (this != &other) {
@@ -847,14 +875,14 @@ inline auto PullConverter<From>::operator=(PullConverter&& other) noexcept
         swap(scratch_output_, other.scratch_output_);
         swap(state_, other.state_);
         swap(factor_, other.factor_);
+        swap(channels_, other.channels_);
     }
     return *this;
 }
 
 #if SRCPP_USE_CPP23
-template <SupportedSampleType From>
 template <SupportedSampleType To>
-inline auto PullConverter<From>::convert_expected(std::span<To> output)
+inline auto PullConverter::convert_expected(std::span<To> output)
     -> std::expected<std::span<To>, std::string>
 {
     auto [result, error] = convert(output);
@@ -865,9 +893,8 @@ inline auto PullConverter<From>::convert_expected(std::span<To> output)
 }
 #endif // SRCPP_USE_CPP23
 
-template <SupportedSampleType From>
 template <SupportedSampleType To>
-inline auto PullConverter<From>::convert(std::span<To> output)
+inline auto PullConverter::convert(std::span<To> output)
     -> std::pair<std::optional<std::span<To>>, std::string>
 {
     // where to put things?
@@ -879,12 +906,12 @@ inline auto PullConverter<From>::convert(std::span<To> output)
             return scratch_output_;
         }
     }();
-    auto size = src_callback_read(state_, factor_,
-        output_data.size() / callback_->channels_, output_data.data());
+    auto size = src_callback_read(
+        state_, factor_, output_data.size() / channels_, output_data.data());
     if (size < 0) {
         return { std::nullopt, src_strerror(src_error(state_)) };
     }
-    auto samples = size * callback_->channels_;
+    auto samples = size * channels_;
     // convert from float to output format
     if constexpr (std::is_same_v<To, short>) {
         src_float_to_short_array(output_data.data(), output.data(), samples);
@@ -894,10 +921,14 @@ inline auto PullConverter<From>::convert(std::span<To> output)
     return { output.first(samples), {} };
 }
 
-template <SupportedSampleType From>
-inline auto PullConverter<From>::CallbackHandle::handle_callback(float** data)
-    -> long
+template <typename Callback>
+inline auto PullConverter::CallbackHandleImpl<Callback>::handle_callback(
+    float** data) -> long
 {
+    using From = std::remove_cvref_t<
+        typename std::invoke_result_t<Callback>::value_type>;
+    static_assert(SupportedSampleType<From>,
+        "Callback must return std::span<T> where T is short, int, or float");
     if (data == nullptr) {
         return 0;
     }
@@ -988,12 +1019,7 @@ auto Convert(FromContainer const& input, SRCpp::Type type, int channels,
         std::span<const From> { input }, type, channels, factor);
 }
 
-// CTAD guide for Pull convert
-template <typename Callback>
-PullConverter(Callback&&, SRCpp::Type, int, double)
-    -> PullConverter<std::remove_cvref_t<
-        std::remove_pointer_t<decltype(std::declval<Callback>()().data())>>>;
-}
+} // namespace SRCpp
 
 // Custom formatter specialization for SRC_DATA
 template <> struct std::formatter<SRC_DATA> {
