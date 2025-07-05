@@ -95,7 +95,7 @@ int examplePullConverter()
         frames_left -= input_span.size();
         return input_span;
     };
-    auto puller = SRCpp::PullConverter<float>(
+    auto puller = SRCpp::PullConverter(
         callback, SRCpp::Type::Sinc_MediumQuality, channels, ratio);
 
     auto buffer = std::vector<float>(input.size() * ratio);
