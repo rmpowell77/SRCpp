@@ -180,3 +180,51 @@ TEST(SRCppPush, PushAfterFlush)
 
     EXPECT_EQ(output2, reference);
 }
+
+TEST(SRCppPush, Push1)
+{
+    auto frames = 64;
+    auto factor = 0.9;
+    auto hz = std::vector<float> { 3000.0f, 40.0f };
+    auto channels = hz.size();
+    auto input = makeSin(hz, 48000.0, frames);
+
+    for (auto type : {
+             SRCpp::Type::ZeroOrderHold,
+             SRCpp::Type::Linear,
+             SRCpp::Type::Sinc_Fastest,
+             SRCpp::Type::Sinc_BestQuality,
+             SRCpp::Type::Sinc_MediumQuality,
+         }) {
+        auto reference = CreatePushReference(input, channels, factor, type);
+
+        auto output = std::vector<float> {};
+        auto pusher = SRCpp::PushConverter(type, channels, factor);
+
+        auto framesLeft = input.size() / channels;
+        while (framesLeft) {
+            auto framesForThis = 1;
+            auto [data, error] = pusher.convert<float>(std::span<float> {
+                input.begin(), input.begin() + framesForThis * channels });
+            if (!data.has_value()) {
+                throw std::runtime_error(error);
+            }
+            input.erase(
+                input.begin(), input.begin() + framesForThis * channels);
+            framesLeft -= framesForThis;
+            output.insert(output.end(), data->begin(),
+                data->end()); // append flush to data
+        }
+
+        {
+            auto [flush, error] = pusher.flush<float>();
+            if (!flush.has_value()) {
+                throw std::runtime_error(error);
+            }
+            output.insert(output.end(), flush->begin(),
+                flush->end()); // append flush to data
+        }
+
+        EXPECT_EQ(output, reference);
+    }
+}

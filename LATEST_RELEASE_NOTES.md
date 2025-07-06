@@ -3,6 +3,7 @@
 Bugs addressed in this release:
 
 * [#45](../../issues/45) Create one shot reference is wrong
+* [#42](../../issues/42) Fix issue with Linear SRC when we supply 1 sample at a time
 
 Other changes:
 

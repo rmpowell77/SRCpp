@@ -7,9 +7,9 @@ SRCpp provides a modern C++ interface for libsamplerate.  It requires minimum of
 
 The library avoids using exceptions and instead leans towards using "error-like" results, specifically `std::pair` of an optional result and error string, or `std::expected` version if available.  This makes it the caller and only the caller's responsibility to deal with the error as they are encountered.  There are inevitable errors such as out of memory conditons where exceptions would be thrown, but those are, well, exceptional.
 
-SRCpp operates on arrays of floats and assumes the audio data is always interleaved. In this context, a sample refers to an individual PCM value for a single channel, while a frame denotes a set of samples—one per channel—that are time-aligned.
+SRCpp operates on arrays of audio samples, and assumes the audio data is always interleaved. In this context, a sample refers to an individual PCM value for a single channel, while a frame denotes a set of samples—one per channel—that are time-aligned.
 
-SRCpp attempts to be flexibly on the types of inputs and outputs, supporting the most common audio types - Int16 (shorts), Int32 (int), and Floating point (floats).  It attempts to use type deduction and CTAD guides when possible, but in situations where the type cannot be implicitly inferred, we require types to be used to avoid confusion -- we want you to fall into pits of success.  Most APIs require the `Input`/`From` to be supplied and can be dedudce, but the `Output`/`To` often is *not* able to be deduce, some APIs require explicit type parameters to be supplied.
+SRCpp attempts to be flexibly on the types of inputs and outputs, supporting the most common audio types - Int16 (shorts), Int32 (int), and Floating point (floats).  It attempts to use implicit type deduction but in situations where the type cannot be implicitly inferred, we require types to be used to avoid confusion -- we want you to fall into pits of success.  Most APIs can deduce the `Input`/`From` type, but the `Output`/`To` often is *not* able to be deduce, some APIs require explicit type parameters to be supplied.
 
 Please consult the [API](docs/API.md) for specific API details.
 
@@ -65,7 +65,7 @@ int main() {
 
     auto converter = SRCpp::PushConverter(
         SRCpp::Type::Sinc_MediumQuality, channels, ratio);
-    auto output = converter.convert_expected(input).and_then(
+    auto output = converter.convert_expected<float>(input).and_then(
         [&converter](
             auto data) -> std::expected<std::vector<float>, std::string> {
             auto flush = converter.flush();
