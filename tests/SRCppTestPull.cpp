@@ -129,6 +129,60 @@ TEST(SRCppPull, TestFunctionAndContext)
     EXPECT_EQ(output, reference);
 }
 
+TEST(SRCppPull, Pull1)
+{
+    auto frames = 64;
+    auto input_frames = size_t(1);
+    auto output_frames = size_t(16);
+    auto factor = 0.9;
+    auto hz = std::vector<float> { 3000.0f, 40.0f };
+    auto channels = hz.size();
+    auto input = makeSin(hz, 48000.0, frames);
+
+    for (auto type : {
+             SRCpp::Type::ZeroOrderHold,
+             SRCpp::Type::Linear,
+             SRCpp::Type::Sinc_Fastest,
+             SRCpp::Type::Sinc_BestQuality,
+             SRCpp::Type::Sinc_MediumQuality,
+         }) {
+        auto reference = CreatePushReference(input, channels, factor, type);
+        // auto reference = CreatePullReference(
+        //     input, channels, factor, type, input_frames, output_frames);
+        // EXPECT_EQ(reference2, reference);
+
+        auto framesExpected = static_cast<size_t>(
+            std::ceil((input.size() / channels) * factor));
+        auto input_span = std::span<float>(input);
+        std::vector<float> output(framesExpected * channels);
+        auto callback = [&]() -> std::span<float> {
+            auto input_samples
+                = std::min(input_frames * channels, input_span.size());
+
+            auto result = input_span.subspan(0, input_samples);
+            input_span = input_span.subspan(input_samples);
+            return result;
+        };
+        auto puller = SRCpp::PullConverter(callback, type, channels, factor);
+        auto framesProduced = 0UL;
+        while (framesProduced < framesExpected) {
+            auto toPull
+                = std::min(output_frames, framesExpected - framesProduced);
+            auto pullBuffer
+                = std::span { output.data() + framesProduced * channels,
+                      toPull * channels };
+            auto [data, error] = puller.convert(pullBuffer);
+            if (!data.has_value()) {
+                throw std::runtime_error(error);
+            }
+            framesProduced += data->size() / channels;
+        }
+        output.resize(framesProduced * channels);
+
+        EXPECT_EQ(output, reference);
+    }
+}
+
 // TEST_CASE("Test returning 0, then returning more", "[SRCpp]")
 // {
 //     auto frames = 64;
