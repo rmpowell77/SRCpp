@@ -102,6 +102,14 @@ Enumerates the available sample rate conversion algorithms:
 - `ZeroOrderHold`: Zero-order hold interpolation (`SRC_ZERO_ORDER_HOLD`)
 - `Linear`: Linear interpolation (`SRC_LINEAR`)
 
+### `enum struct Type`
+
+```cpp
+enum struct Format : uint8_t { Short, Int, Float };
+```
+
+Enumerates the available unsafe conversions of short, int, and floats.
+
 ---
 
 ## Functions
@@ -239,6 +247,16 @@ string.
 
 ---
 
+## Unsafe
+
+Each form of conversion supports an "unsafe" type.  This is where the caller
+supplies untyped memory location and a `Format` enum of the appropriate "from"
+and "to" type.  This is to allow usage of conversion at run time where the
+underlying type is not known.  The APIs are intentionally labeled as unsafe to
+give caution to the caller that these be used sparingly and with extra scrutiny.
+
+---
+
 ## Details
 
 - All functions and classes are exception-safe. Errors are reported via return
@@ -272,10 +290,36 @@ enum struct Type : uint8_t {
     Linear = SRC_LINEAR
 };
 
+enum struct Format : uint8_t { Short, Int, Float };
+
 // Concept to restrict types to short, int, or float
 template <typename T>
 concept SupportedSampleType = std::is_same_v<T, short> || std::is_same_v<T, int>
     || std::is_same_v<T, float>;
+
+template <SupportedSampleType T> constexpr auto SampleTypeToFormat() -> Format
+{
+    if constexpr (std::is_same_v<T, short>) {
+        return Format::Short;
+    } else if constexpr (std::is_same_v<T, int>) {
+        return Format::Int;
+    } else {
+        return Format::Float;
+    }
+}
+
+constexpr auto SizeOfFormat(Format format) -> size_t
+{
+    switch (format) {
+    case Format::Short:
+        return sizeof(short);
+    case Format::Int:
+        return sizeof(int);
+    case Format::Float:
+        return sizeof(float);
+    }
+    return sizeof(short);
+}
 
 #if SRCPP_USE_CPP23
 template <SupportedSampleType To, SupportedSampleType From>
@@ -285,6 +329,13 @@ auto Convert_expected(std::span<const From> input, std::span<To> output,
 template <SupportedSampleType To, SupportedSampleType From = float>
 auto Convert_expected(std::span<const From> input, SRCpp::Type type,
     int channels, double factor) -> std::expected<std::vector<To>, std::string>;
+
+auto Convert_unsafe_expected(Format from, const void* input, size_t input_size,
+    Format to, void* output, size_t output_size, SRCpp::Type type, int channels,
+    double factor) -> std::expected<size_t, std::string>;
+auto Convert_unsafe_expected(Format from, const void* input, size_t input_size,
+    Format to, SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::vector<std::byte>, std::string>;
 #endif // SRCPP_USE_CPP23
 
 template <SupportedSampleType To, SupportedSampleType From>
@@ -294,6 +345,13 @@ auto Convert(std::span<const From> input, std::span<To> output,
 template <SupportedSampleType To, SupportedSampleType From>
 auto Convert(std::span<const From> input, SRCpp::Type type, int channels,
     double factor) -> std::pair<std::optional<std::vector<To>>, std::string>;
+
+auto Convert_unsafe(Format from, const void* input, size_t input_size,
+    Format to, void* output, size_t output_size, SRCpp::Type type, int channels,
+    double factor) -> std::pair<std::optional<size_t>, std::string>;
+auto Convert_unsafe(Format from, const void* input, size_t input_size,
+    Format to, SRCpp::Type type, int channels, double factor)
+    -> std::pair<std::optional<std::vector<std::byte>>, std::string>;
 
 class PushConverter {
 public:
@@ -315,6 +373,14 @@ public:
 
     template <SupportedSampleType To>
     auto flush_expected() -> std::expected<std::vector<To>, std::string>;
+
+    auto convert_unsafe_expected(Format from, const void* input,
+        size_t input_size, Format to, void* output, size_t output_size)
+        -> std::expected<size_t, std::string>;
+
+    auto convert_unsafe_expected(
+        Format from, const void* input, size_t input_size, Format to)
+        -> std::expected<std::vector<std::byte>, std::string>;
 #endif // SRCPP_USE_CPP23
 
     template <SupportedSampleType To, SupportedSampleType From>
@@ -327,6 +393,14 @@ public:
 
     template <SupportedSampleType To>
     auto flush() -> std::pair<std::optional<std::vector<To>>, std::string>;
+
+    auto convert_unsafe(Format from, const void* input, size_t input_size,
+        Format to, void* output, size_t output_size)
+        -> std::pair<std::optional<size_t>, std::string>;
+
+    auto convert_unsafe(
+        Format from, const void* input, size_t input_size, Format to)
+        -> std::pair<std::optional<std::vector<std::byte>>, std::string>;
 
 #if SRCPP_USE_CPP23
     template <typename ToContainer, typename FromContainer,
@@ -384,6 +458,7 @@ private:
         -> std::pair<
             std::optional<std::pair<std::span<const float>, std::span<float>>>,
             std::string>;
+    auto framesToReserve(size_t frames) const -> size_t;
 };
 
 class PullConverter {
@@ -412,11 +487,17 @@ public:
     template <SupportedSampleType To>
     auto convert_expected(std::span<To> output)
         -> std::expected<std::span<To>, std::string>;
+
+    auto convert_unsafe_expected(Format to, void* output, size_t output_size)
+        -> std::expected<size_t, std::string>;
 #endif // SRCPP_USE_CPP23
 
     template <SupportedSampleType To>
     auto convert(std::span<To> output)
         -> std::pair<std::optional<std::span<To>>, std::string>;
+
+    auto convert_unsafe(Format to, void* output, size_t output_size)
+        -> std::pair<std::optional<size_t>, std::string>;
 
 #if SRCPP_USE_CPP23
     template <typename ToContainer,
@@ -499,6 +580,32 @@ inline auto Convert_expected(std::span<const From> input, SRCpp::Type type,
     }
     return std::unexpected(error);
 }
+
+inline auto Convert_unsafe_expected(Format from, const void* input,
+    size_t input_size, Format to, void* output, size_t output_size,
+    SRCpp::Type type, int channels, double factor)
+    -> std::expected<size_t, std::string>
+{
+    auto [result, error] = Convert_unsafe(from, input, input_size, to, output,
+        output_size, type, channels, factor);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+
+inline auto Convert_unsafe_expected(Format from, const void* input,
+    size_t input_size, Format to, SRCpp::Type type, int channels, double factor)
+    -> std::expected<std::vector<std::byte>, std::string>
+{
+    auto [result, error]
+        = Convert_unsafe(from, input, input_size, to, type, channels, factor);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+
 #endif // SRCPP_USE_CPP23
 
 template <SupportedSampleType To, SupportedSampleType From>
@@ -572,6 +679,162 @@ inline auto Convert(std::span<const From> input, SRCpp::Type type, int channels,
     }
     output.resize(result->size());
     return { output, {} };
+}
+
+namespace details {
+    template <SupportedSampleType To, SupportedSampleType From>
+    inline auto Convert_unsafe_helper(std::span<const From> input_span,
+        void* output, size_t output_size, SRCpp::Type type, int channels,
+        double factor) -> std::pair<std::optional<size_t>, std::string>
+    {
+        auto output_span
+            = std::span<To>(static_cast<To*>(output), output_size / sizeof(To));
+        auto [result, error] = Convert<To, From>(
+            input_span, output_span, type, channels, factor);
+        if (!result.has_value()) {
+            return { std::nullopt, error };
+        }
+        return { result->size_bytes(), {} };
+    }
+
+    template <SupportedSampleType From>
+    inline auto Convert_unsafe_helper(const void* input, size_t input_size,
+        Format to, void* output, size_t output_size, SRCpp::Type type,
+        int channels, double factor)
+        -> std::pair<std::optional<size_t>, std::string>
+    {
+        auto input_span = std::span<const From>(
+            static_cast<const From*>(input), input_size / sizeof(From));
+        switch (to) {
+        case Format::Short:
+            return Convert_unsafe_helper<short>(
+                input_span, output, output_size, type, channels, factor);
+        case Format::Int:
+            return Convert_unsafe_helper<int>(
+                input_span, output, output_size, type, channels, factor);
+        case Format::Float:
+            return Convert_unsafe_helper<float>(
+                input_span, output, output_size, type, channels, factor);
+        }
+        return { std::nullopt, "Invalid format combination" };
+    }
+
+    template <SupportedSampleType To>
+    auto Convert_unsafe_helper(Format from, const void* input,
+        size_t input_size, Format to, size_t output_elements, SRCpp::Type type,
+        int channels, double factor)
+        -> std::pair<std::optional<std::vector<std::byte>>, std::string>
+    {
+        std::vector<std::byte> output(output_elements * sizeof(To));
+        auto [result, error] = Convert_unsafe(from, input, input_size, to,
+            output.data(), output.size(), type, channels, factor);
+        if (!result.has_value()) {
+            return { std::nullopt, error };
+        }
+        output.resize(*result);
+        return { std::move(output), {} };
+    }
+
+    template <SupportedSampleType To, SupportedSampleType From>
+    auto convert_unsafe_helper(PushConverter& push,
+        std::span<const From> input_span, void* output, size_t output_size)
+        -> std::pair<std::optional<size_t>, std::string>
+    {
+        auto output_span
+            = std::span<To>(static_cast<To*>(output), output_size / sizeof(To));
+        auto [result, error] = push.convert<To, From>(input_span, output_span);
+        if (!result.has_value()) {
+            return { std::nullopt, error };
+        }
+        return { result->size_bytes(), {} };
+    }
+
+    template <SupportedSampleType From>
+    inline auto convert_unsafe_helper(PushConverter& push, const void* input,
+        size_t input_size, Format to, void* output, size_t output_size)
+        -> std::pair<std::optional<size_t>, std::string>
+    {
+        auto input_span = std::span<const From>(
+            static_cast<const From*>(input), input_size / sizeof(From));
+        switch (to) {
+        case Format::Short:
+            return details::convert_unsafe_helper<short>(
+                push, input_span, output, output_size);
+        case Format::Int:
+            return details::convert_unsafe_helper<int>(
+                push, input_span, output, output_size);
+        case Format::Float:
+            return details::convert_unsafe_helper<float>(
+                push, input_span, output, output_size);
+        }
+        return { std::nullopt, "Invalid format combination" };
+    }
+
+    template <SupportedSampleType To>
+    auto convert_unsafe_helper(PushConverter& push, Format from,
+        const void* input, size_t input_size, Format to, size_t out_samples)
+        -> std::pair<std::optional<std::vector<std::byte>>, std::string>
+    {
+        std::vector<std::byte> output(out_samples * sizeof(To));
+        auto [result, error] = push.convert_unsafe(
+            from, input, input_size, to, output.data(), output.size());
+        if (!result.has_value()) {
+            return { std::nullopt, error };
+        }
+        output.resize(*result);
+        return { std::move(output), {} };
+    }
+
+    template <SupportedSampleType To>
+    auto convert_unsafe_helper(PullConverter& pull, void* output,
+        size_t output_size) -> std::pair<std::optional<size_t>, std::string>
+    {
+        auto [size, error] = pull.convert(std::span<To> {
+            static_cast<To*>(output), output_size / sizeof(To) });
+        if (!size) {
+            return { std::nullopt, error };
+        }
+        return { size->size_bytes(), {} };
+    }
+}
+
+inline auto Convert_unsafe(Format from, const void* input, size_t input_size,
+    Format to, void* output, size_t output_size, SRCpp::Type type, int channels,
+    double factor) -> std::pair<std::optional<size_t>, std::string>
+{
+    switch (from) {
+    case Format::Short:
+        return details::Convert_unsafe_helper<short>(
+            input, input_size, to, output, output_size, type, channels, factor);
+    case Format::Int:
+        return details::Convert_unsafe_helper<int>(
+            input, input_size, to, output, output_size, type, channels, factor);
+    case Format::Float:
+        return details::Convert_unsafe_helper<float>(
+            input, input_size, to, output, output_size, type, channels, factor);
+    }
+    return { std::nullopt, "Invalid format combination" };
+}
+
+inline auto Convert_unsafe(Format from, const void* input, size_t input_size,
+    Format to, SRCpp::Type type, int channels, double factor)
+    -> std::pair<std::optional<std::vector<std::byte>>, std::string>
+{
+    size_t output_elements = static_cast<size_t>(std::ceil(
+                                 (input_size / SizeOfFormat(from)) * factor))
+        + 1;
+    switch (to) {
+    case Format::Short:
+        return details::Convert_unsafe_helper<short>(from, input, input_size,
+            to, output_elements, type, channels, factor);
+    case Format::Int:
+        return details::Convert_unsafe_helper<int>(from, input, input_size, to,
+            output_elements, type, channels, factor);
+    case Format::Float:
+        return details::Convert_unsafe_helper<float>(from, input, input_size,
+            to, output_elements, type, channels, factor);
+    }
+    return { std::nullopt, "Invalid format combination" };
 }
 
 inline PushConverter::PushConverter(
@@ -691,6 +954,29 @@ inline auto PushConverter::flush_expected()
 {
     return convert_expected<To, float>(std::vector<float> {});
 }
+
+inline auto PushConverter::convert_unsafe_expected(Format from,
+    const void* input, size_t input_size, Format to, void* output,
+    size_t output_size) -> std::expected<size_t, std::string>
+{
+    auto [result, error]
+        = convert_unsafe(from, input, input_size, to, output, output_size);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
+
+inline auto PushConverter::convert_unsafe_expected(
+    Format from, const void* input, size_t input_size, Format to)
+    -> std::expected<std::vector<std::byte>, std::string>
+{
+    auto [result, error] = convert_unsafe(from, input, input_size, to);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
 #endif // SRCPP_USE_CPP23
 
 template <SupportedSampleType To, SupportedSampleType From>
@@ -745,17 +1031,7 @@ template <SupportedSampleType To, SupportedSampleType From>
 inline auto PushConverter::convert(std::span<const From> input)
     -> std::pair<std::optional<std::vector<To>>, std::string>
 {
-    auto expected_frames_produced
-        = static_cast<size_t>(std::ceil(input_frames_consumed_ * factor_));
-    auto amount = [&]() -> size_t {
-        if (!input.empty()) {
-            return std::ceil((input.size() / channels_) * factor_);
-        }
-        if (expected_frames_produced >= output_frames_produced_) {
-            return expected_frames_produced - output_frames_produced_;
-        }
-        return 0;
-    }() + 1;
+    auto amount = framesToReserve(input.size());
     std::vector<To> output(amount * channels_);
     auto [result, error] = convert(input, output);
     if (!result.has_value()) {
@@ -770,6 +1046,44 @@ inline auto PushConverter::flush()
     -> std::pair<std::optional<std::vector<To>>, std::string>
 {
     return convert<To, float>(std::vector<float> {});
+}
+
+inline auto PushConverter::convert_unsafe(Format from, const void* input,
+    size_t input_size, Format to, void* output, size_t output_size)
+    -> std::pair<std::optional<size_t>, std::string>
+{
+    switch (from) {
+    case Format::Short:
+        return details::convert_unsafe_helper<short>(
+            *this, input, input_size, to, output, output_size);
+    case Format::Int:
+        return details::convert_unsafe_helper<int>(
+            *this, input, input_size, to, output, output_size);
+    case Format::Float:
+        return details::convert_unsafe_helper<float>(
+            *this, input, input_size, to, output, output_size);
+    }
+    return { std::nullopt, "Invalid format combination" };
+}
+
+inline auto PushConverter::convert_unsafe(
+    Format from, const void* input, size_t input_size, Format to)
+    -> std::pair<std::optional<std::vector<std::byte>>, std::string>
+{
+    size_t output_samples
+        = framesToReserve(input_size / SizeOfFormat(from)) * channels_;
+    switch (to) {
+    case Format::Short:
+        return details::convert_unsafe_helper<short>(
+            *this, from, input, input_size, to, output_samples);
+    case Format::Int:
+        return details::convert_unsafe_helper<int>(
+            *this, from, input, input_size, to, output_samples);
+    case Format::Float:
+        return details::convert_unsafe_helper<float>(
+            *this, from, input, input_size, to, output_samples);
+    }
+    return { std::nullopt, "Invalid format combination" };
 }
 
 inline auto PushConverter::convert(
@@ -848,6 +1162,22 @@ inline auto PushConverter::convertWithFixFor208(
     return { std::pair { input.subspan(input_data_used), output_created }, {} };
 }
 
+inline auto PushConverter::framesToReserve(size_t frames) const -> size_t
+{
+    auto expected_frames_produced = static_cast<size_t>(
+        std::ceil(static_cast<double>(input_frames_consumed_) * factor_));
+    return [&]() -> size_t {
+        if (frames) {
+            return static_cast<size_t>(
+                std::ceil((frames / channels_) * factor_));
+        }
+        if (expected_frames_produced >= output_frames_produced_) {
+            return expected_frames_produced - output_frames_produced_;
+        }
+        return 0;
+    }() + 1;
+}
+
 template <typename Callback>
 inline PullConverter::PullConverter(
     Callback&& callback, SRCpp::Type type, int channels, double factor)
@@ -905,6 +1235,16 @@ inline auto PullConverter::convert_expected(std::span<To> output)
     }
     return std::unexpected(error);
 }
+
+inline auto PullConverter::convert_unsafe_expected(Format to, void* output,
+    size_t output_size) -> std::expected<size_t, std::string>
+{
+    auto [result, error] = convert_unsafe(to, output, output_size);
+    if (result.has_value()) {
+        return *result;
+    }
+    return std::unexpected(error);
+}
 #endif // SRCPP_USE_CPP23
 
 template <SupportedSampleType To>
@@ -935,6 +1275,22 @@ inline auto PullConverter::convert(std::span<To> output)
     return { output.first(samples), {} };
 }
 
+inline auto PullConverter::convert_unsafe(Format to, void* output,
+    size_t output_size) -> std::pair<std::optional<size_t>, std::string>
+{
+    switch (to) {
+    case Format::Short:
+        return details::convert_unsafe_helper<short>(
+            *this, output, output_size);
+    case Format::Int:
+        return details::convert_unsafe_helper<int>(*this, output, output_size);
+    case Format::Float:
+        return details::convert_unsafe_helper<float>(
+            *this, output, output_size);
+    }
+    return { std::nullopt, "Invalid format combination" };
+}
+
 template <typename Callback>
 inline auto PullConverter::CallbackHandleImpl<Callback>::handle_callback(
     float** data) -> long
@@ -942,7 +1298,8 @@ inline auto PullConverter::CallbackHandleImpl<Callback>::handle_callback(
     using From = std::remove_cvref_t<
         typename std::invoke_result_t<Callback>::value_type>;
     static_assert(SupportedSampleType<From>,
-        "Callback must return std::span<T> where T is short, int, or float");
+        "Callback must return std::span<T> where T is short, int, or "
+        "float");
     if (data == nullptr) {
         return 0;
     }
@@ -1038,6 +1395,13 @@ auto Convert(FromContainer const& input, SRCpp::Type type, int channels,
         std::span<const From> { input }, type, channels, factor);
 }
 
+namespace details {
+    static_assert(SupportedSampleType<int>);
+    static_assert(!SupportedSampleType<double>);
+    static_assert(SampleTypeToFormat<short>() == Format::Short);
+    static_assert(SampleTypeToFormat<int>() == Format::Int);
+    static_assert(SampleTypeToFormat<float>() == Format::Float);
+}
 } // namespace SRCpp
 
 // Custom formatter specialization for SRC_DATA

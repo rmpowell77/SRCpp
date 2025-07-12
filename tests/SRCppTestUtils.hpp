@@ -276,7 +276,7 @@ auto ConvertWithPush([[maybe_unused]] bool cpp_20, std::vector<From> input,
                 auto [data, error] = pusher.convert<To>(std::span<From> {
                     input.begin(), input.begin() + framesForThis * channels });
                 if (!data.has_value()) {
-                    throw error;
+                    throw std::runtime_error(error);
                 }
                 return *data;
 #if SRCPP_USE_CPP23
@@ -301,7 +301,7 @@ auto ConvertWithPush([[maybe_unused]] bool cpp_20, std::vector<From> input,
 #endif // SRCPP_USE_CPP23
             auto [data, error] = pusher.flush<To>();
             if (!data.has_value()) {
-                throw error;
+                throw std::runtime_error(error);
             }
             return *data;
 #if SRCPP_USE_CPP23
@@ -340,7 +340,7 @@ auto ConvertWithPushReuseMemory([[maybe_unused]] bool cpp_20,
                         input.begin() + framesForThis * channels },
                     outputSpan);
                 if (!data.has_value()) {
-                    throw error;
+                    throw std::runtime_error(error);
                 }
                 return *data;
 #if SRCPP_USE_CPP23
@@ -368,7 +368,7 @@ auto ConvertWithPushReuseMemory([[maybe_unused]] bool cpp_20,
 #endif // SRCPP_USE_CPP23
             auto [data, error] = pusher.convert(std::span<From> {}, outputSpan);
             if (!data.has_value()) {
-                throw error;
+                throw std::runtime_error(error);
             }
             return *data;
 #if SRCPP_USE_CPP23
