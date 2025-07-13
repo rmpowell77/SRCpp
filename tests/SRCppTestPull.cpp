@@ -6,6 +6,54 @@
 #include <print>
 #include <ranges>
 
+namespace {
+template <typename To, typename From>
+auto doUnsafeTest(std::vector<From> input, std::vector<To> const& reference,
+    SRCpp::Type type, size_t channels, float factor)
+{
+    auto framesExpected
+        = static_cast<size_t>(std::ceil((input.size() / channels) * factor));
+    auto input_span = std::span<From>(input);
+    // pull more than we need, make sure to run the input dry
+    auto callback = [&]() -> std::span<From> {
+        auto input_samples = input_span.size();
+
+        auto result = input_span.subspan(0, input_samples);
+        input_span = input_span.subspan(input_samples);
+        return result;
+    };
+#if SRCPP_USE_CPP23
+    {
+        input_span = std::span<From>(input);
+        std::vector<To> output(framesExpected * channels * 2);
+        auto puller = SRCpp::PullConverter(callback, type, channels, factor);
+        auto data
+            = puller.convert_unsafe_expected(SRCpp::SampleTypeToFormat<To>(),
+                output.data(), output.size() * sizeof(To));
+        if (!data.has_value()) {
+            throw std::runtime_error(data.error());
+        }
+        output.resize(*data / sizeof(To));
+        CheckRMS<To, From>(reference, output);
+    }
+#endif // SRCPP_USE_CPP23
+    {
+        input_span = std::span<From>(input);
+        std::vector<To> output(framesExpected * channels * 2);
+        auto puller = SRCpp::PullConverter(callback, type, channels, factor);
+
+        auto [data, error]
+            = puller.convert_unsafe(SRCpp::SampleTypeToFormat<To>(),
+                output.data(), output.size() * sizeof(To));
+        if (!data.has_value()) {
+            throw std::runtime_error(error);
+        }
+        output.resize(*data / sizeof(To));
+        CheckRMS<To, From>(reference, output);
+    }
+}
+}
+
 TEST(SRCppPull, MovingConverter)
 {
     auto frames = 256;
@@ -181,6 +229,32 @@ TEST(SRCppPull, Pull1)
 
         EXPECT_EQ(output, reference);
     }
+}
+
+TEST(SRCppPull, UnsafeConvert)
+{
+    auto frames = 256;
+    auto type = SRCpp::Type::Sinc_BestQuality;
+    auto factor = 0.5;
+    auto hz = std::vector<float> { 3000.0f, 40.0f };
+    auto channels = hz.size();
+
+    auto inputFloat = makeSin(hz, 48000.0, frames);
+    auto inputShort = ConvertTo<short>(inputFloat);
+    auto inputInt = ConvertTo<int>(inputFloat);
+    auto referenceFloat
+        = CreateOneShotReference(inputFloat, channels, factor, type);
+    auto referenceShort = ConvertTo<short>(referenceFloat);
+    auto referenceInt = ConvertTo<int>(referenceFloat);
+    doUnsafeTest(inputShort, referenceShort, type, channels, factor);
+    doUnsafeTest(inputInt, referenceShort, type, channels, factor);
+    doUnsafeTest(inputFloat, referenceShort, type, channels, factor);
+    doUnsafeTest(inputShort, referenceInt, type, channels, factor);
+    doUnsafeTest(inputInt, referenceInt, type, channels, factor);
+    doUnsafeTest(inputFloat, referenceInt, type, channels, factor);
+    doUnsafeTest(inputShort, referenceFloat, type, channels, factor);
+    doUnsafeTest(inputInt, referenceFloat, type, channels, factor);
+    doUnsafeTest(inputFloat, referenceFloat, type, channels, factor);
 }
 
 // TEST_CASE("Test returning 0, then returning more", "[SRCpp]")
